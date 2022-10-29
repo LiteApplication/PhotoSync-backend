@@ -1,0 +1,4 @@
+config.conf
+data/
+
+**/__pycache__/
