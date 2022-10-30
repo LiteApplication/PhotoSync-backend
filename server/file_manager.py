@@ -222,7 +222,7 @@ def reload_index():
         fm.populate_index()
 
         # Remove files that are not in the storage anymore
-        for f_id in fm.index:
+        for f_id in list(fm.index):
             if not os.path.exists(fm.get_file_path(fm.index[f_id]["name"])):
                 name = fm.index[f_id]["name"]
                 del fm.index[f_id]
@@ -240,7 +240,7 @@ def reload_index():
 def refresh_index():
     """Read the index file and update the index (does not reindex the whole storage)"""
     fm = FileManager()
-    fm.index = fm.load_index()
+    fm.load_index()
     fm.known_files.clear()
     for f_id in fm.index:
         fm.known_files.add(fm.index[f_id]["name"])
@@ -278,12 +278,10 @@ def upload_file():
     account = Accounts()
 
     user = account.get_user()
+    username = user["username"]
 
     if "file" not in request.files:
         return {"message": "No file part"}, 400
-
-    if "name" not in request.form:
-        return {"message": f"No name provided"}, 400
 
     file = request.files["file"]
     if file.filename == "":
@@ -309,8 +307,18 @@ def upload_file():
 
     if file:
         filename = secure_filename(file.filename)
+
+        # Store the file in the user's folder (does not impact ownership but it is easier to manage)
+        if not os.path.exists(fm.get_file_path(username)):
+            os.makedirs(fm.get_file_path(username))
+        filename = os.path.join(username, filename)
+
+        # Check if the file already exists
+        if filename in fm.known_files:
+            return {"message": "File already exists"}, 400
         file.save(
-            fm.get_file_path(filename), buffer_size=ConfigFile().download_buffer_size
+            fm.get_file_path(filename),
+            buffer_size=ConfigFile().download_buffer_size,
         )
         f_info, f_id = fm.get_file_info(filename, force_update=True)
         if "date" in request.form and request.form["date"] != "0":
@@ -318,6 +326,7 @@ def upload_file():
                 f_info["date"] = int(request.form["date"])
             except ValueError:
                 pass  # Use the guessed date
+        f_info["owner"] = username
         fm.index[f_id] = f_info
         fm.save_index()
         return {"message": "OK", "id": f_id}, 200
