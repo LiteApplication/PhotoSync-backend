@@ -5,10 +5,12 @@ import re
 
 from cryptography import fernet
 
+from utils import Singleton
+
 log = logging.getLogger("configuration")
 
 
-class ConfigFile:
+class ConfigFile(metaclass=Singleton):
     DEFAULT = {
         "storage": "/srv/photosync/storage",
         "index": "/srv/photosync/index.json",
