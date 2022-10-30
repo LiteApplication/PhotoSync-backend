@@ -1,4 +1,4 @@
-from flask import Response, jsonify, Blueprint
+from flask import Blueprint, Response, jsonify, request
 
 
 class Singleton(type):
@@ -21,41 +21,38 @@ def blueprint_api(blueprint: Blueprint, *args, **kwargs):
             else:
                 return Response(jsonify(response))
 
-        blueprint.add_url_rule(*args, **kwargs, view_func=func)
+        # Give the wrapper the same attributes as the original function
+        wrapper.__name__ = func.__name__
+        wrapper.__doc__ = func.__doc__
+        wrapper.__dict__.update(func.__dict__)
+
+        blueprint.add_url_rule(*args, **kwargs, view_func=wrapper)
+
         return wrapper
 
     return decorator
 
 
 def require_login(func):
-    if "logged_in" in func.__code__.co_varnames:
-
-        def wrapper(*args, **kwargs):
-            from flask import request
-            from accounts import Accounts
-
-            return func(
-                *args,
-                **kwargs,
-                logged_in=Accounts()._check_token(request.headers.get("Token"))
-            )
-
-        return wrapper
-
     def wrapper(*args, **kwargs):
         from flask import request
+
         from accounts import Accounts
 
         if not Accounts()._check_token(request.headers.get("Token")):
             return {"message": "Unauthorized"}, 401
         return func(*args, **kwargs)
 
+    # Give the wrapper the same attributes as the original function
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__
+    wrapper.__dict__.update(func.__dict__)
+
     return wrapper
 
 
 def require_admin(func):
     def wrapper(*args, **kwargs):
-        from flask import request
         from accounts import Accounts
 
         if not Accounts()._check_token(request.headers.get("Token")):
@@ -63,5 +60,10 @@ def require_admin(func):
         if not Accounts().get_user().get("admin"):
             return {"message": "Unauthorized"}, 401
         return func(*args, **kwargs)
+
+    # Give the wrapper the same attributes as the original function
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__
+    wrapper.__dict__.update(func.__dict__)
 
     return wrapper

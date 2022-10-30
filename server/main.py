@@ -2,12 +2,11 @@
 import logging
 
 from flask import Flask
-from flask_httpauth import HTTPBasicAuth
 from flask_restful import Api
 
 import accounts
-from configuration import ConfigFile
 import file_manager
+from configuration import ConfigFile
 
 app = None
 
@@ -45,7 +44,6 @@ def main(config_file: str | None = None, run: bool = True):
 
     app = Flask(__name__)
     api = Api(app, "/api")
-    auth = HTTPBasicAuth()
 
     if config.ssl:
         context = (config.ssl_cert, config.ssl_key)
@@ -56,6 +54,7 @@ def main(config_file: str | None = None, run: bool = True):
     app.register_blueprint(accounts.bp)
     app.register_blueprint(accounts.admin)
     app.register_blueprint(file_manager.bp)
+    app.register_blueprint(file_manager.fileio)
 
     if run:
         app.run(config.address, config.port, ssl_context=context)

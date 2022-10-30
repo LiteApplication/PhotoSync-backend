@@ -1,7 +1,7 @@
+import logging
 import os
 import random
 import re
-import logging
 
 from cryptography import fernet
 
@@ -24,6 +24,7 @@ class ConfigFile:
         "password_key": fernet.Fernet.generate_key().decode("utf-8"),
         "token_expiration": 31536000,  # 1 year
         "max_tokens": 32,  # Maximum number of tokens per user
+        "download_buffer_size": 65536,  # 64kb
     }
     TYPES = {
         "storage": str,
@@ -39,6 +40,7 @@ class ConfigFile:
         "password_key": str,
         "token_expiration": int,
         "max_tokens": int,
+        "download_buffer_size": int,
     }
 
     def __init__(self, file_name: str):

@@ -3,19 +3,21 @@ import json
 import logging
 import os
 import uuid
+from distutils.command.config import config
+from timeit import default_timer as timer
 
-from flask import request, Blueprint
-from flask_restful import Resource
-from flask_httpauth import HTTPBasicAuth
+from flask import Blueprint, request, send_file
 from PIL import Image
-from accounts import Accounts
+from werkzeug.utils import secure_filename
 
+from accounts import Accounts
 from configuration import ConfigFile
-from utils import Singleton, blueprint_api, require_admin, require_login
+from utils import Singleton, require_admin, require_login
 
 log = logging.getLogger("file_manager")
 
-bp = Blueprint("file_manager", __name__, url_prefix="/api/file_manager")
+bp = Blueprint("file_manager", __name__, url_prefix="/api/files")
+fileio = Blueprint("fileio", __name__, url_prefix="/api/fileio")
 
 
 def creation_date(path_to_file):
@@ -31,22 +33,24 @@ def creation_date(path_to_file):
 # Make FileManager a singleton
 
 
-class FileManager(Resource, metaclass=Singleton):
+class FileManager(metaclass=Singleton):
     """Class to manage files (this is an API endpoint)"""
 
     def __init__(self, config: ConfigFile):
         self.config = config
         self.path = config.storage
-        self.index = self.load_index()
+        self.known_files = set()
+        self.load_index()  # Index is a dict with the id as key
 
         if not os.path.exists(self.path):
             os.makedirs(self.path)
 
     def load_index(self):
         if not os.path.exists(self.config.index):
-            return {}
+            self.index = {}
         with open(self.config.index, "r") as f:
-            return json.load(f)
+            self.index = json.load(f)
+            self.known_files = {f["name"] for f in self.index.values()}
 
     def save_index(self):
         with open(self.config.index, "w") as f:
@@ -58,13 +62,18 @@ class FileManager(Resource, metaclass=Singleton):
     def get_extension(self, name: str):
         return os.path.splitext(name)[1]
 
+    def get_known_files(self):
+        for f_id in self.index:
+            yield self.index[f_id]["name"]
+
     def get_file_info(self, name: str, force_update: bool = False):
         if (
             not force_update
-            and name in self.index
+            and name in self.known_files
             and os.path.exists(self.get_file_path(name))
         ):
             return self.index[name]
+        self.known_files.add(name)
         if not os.path.exists(self.get_file_path(name)):
             return None
         info = {}
@@ -133,9 +142,8 @@ class FileManager(Resource, metaclass=Singleton):
             except:
                 print("Error while reading exif data for :", name)
         info["path"] = self.get_file_path(name)
-        if not unsupported:
-            self.index[name] = info
-        return info
+
+        return info, info["id"]
 
     def populate_index(self, force_update: bool = False):
         for root, dirs, files in os.walk(self.path):
@@ -143,43 +151,174 @@ class FileManager(Resource, metaclass=Singleton):
             if root.startswith(os.sep):
                 root = root[1:]
             for file in files:
-                self.index[os.path.join(root, file)] = self.get_file_info(
+                if os.path.join(root, file) in self.known_files:
+                    continue
+                f_info, f_id = self.get_file_info(
                     os.path.join(root, file), force_update
                 )
+                self.index[f_id] = f_info
                 log.debug(f"Indexed {file}")
-        self.save_index()
 
     def get_all_infos(self):
         return self.index
 
 
+@bp.route("/get-by/<string:attribute>/<path:value>")
 @require_login
-@blueprint_api(bp, "/get-by/<string:attribute>/<string:value>")
 def get_by_attribute(attribute, value):
-    self = FileManager()
+    fm = FileManager()
     account = Accounts()
 
     user = account.get_user()
     admin = user["admin"]
+
+    shared_keys = [
+        "name",
+        "date",
+        "extension",
+        "type",
+        "format",
+        "owner",
+        "id",
+        "hash",
+    ]
+
+    if attribute not in shared_keys:
+        return {"message": "Invalid attribute"}, 400
+
+    if attribute == "owner":
+        if value == "me" or value == user["username"]:
+            value = user["username"]
+        elif not admin:
+            return {"message": "You are not allowed to do that"}, 403
+
+    if attribute == "id":
+        if value not in fm.index:
+            return {"message": "File not found"}, 404
+        return {k: fm.index[value][k] for k in shared_keys}
+
     return [
-        file
-        for file in FileManager().index
-        if self.index[file][attribute] == value
-        and (self.index[file]["owner"] == user or admin)
+        {k: fm.index[f_id][k] for k in shared_keys}
+        for f_id in fm.index
+        if fm.index[f_id][attribute] == value
+        and (fm.index[f_id]["owner"] == user["username"] or admin)
     ]
 
 
-@require_login
-@blueprint_api(bp, "/get-all")
-def get():
+@bp.route("/get-all")
+@require_admin
+def get_all():
     return FileManager().get_all_infos()
 
 
+@bp.route("/reload", methods=["PATCH"])
 @require_admin
-@blueprint_api(bp, "/reload")
 def reload_index():
+    """Reindex the whole storage"""
     try:
-        FileManager().populate_index()
+        # Time the reload
+        start = timer()
+        fm = FileManager()
+        fm.populate_index()
+
+        # Remove files that are not in the storage anymore
+        for f_id in fm.index:
+            if not os.path.exists(fm.get_file_path(fm.index[f_id]["name"])):
+                name = fm.index[f_id]["name"]
+                del fm.index[f_id]
+                if name in fm.known_files:
+                    fm.known_files.remove(name)
+        fm.save_index()
+        end = timer()
     except Exception as e:
         return {"message": e.args}, 500
-    return 200
+    return {"message": "OK", "elapsed": (end - start) * 1000}, 200
+
+
+@bp.route("/refesh-index", methods=["PATCH"])
+@require_admin
+def refresh_index():
+    """Read the index file and update the index (does not reindex the whole storage)"""
+    fm = FileManager()
+    fm.index = fm.load_index()
+    fm.known_files.clear()
+    for f_id in fm.index:
+        fm.known_files.add(fm.index[f_id]["name"])
+    return {"message": "OK"}, 200
+
+
+@fileio.route("/download/<string:f_id>", methods=["GET"])
+@require_login
+def download_file(f_id: str):
+    fm = FileManager()
+    account = Accounts()
+
+    user = account.get_user()
+    admin = user["admin"]
+
+    if f_id not in fm.index:
+        return {"message": "File not found"}, 404
+
+    if not admin and fm.index[f_id]["owner"] != user["username"]:
+        print(fm.index[f_id]["owner"], user["username"])
+        return {"message": "You are not allowed to do that"}, 403
+
+    return send_file(
+        fm.get_file_path(fm.index[f_id]["name"]),
+        as_attachment=True,
+        download_name=fm.index[f_id]["name"],
+        last_modified=fm.index[f_id]["date"],
+    )
+
+
+@fileio.route("/upload", methods=["POST"])
+@require_login
+def upload_file():
+    fm = FileManager()
+    account = Accounts()
+
+    user = account.get_user()
+
+    if "file" not in request.files:
+        return {"message": "No file part"}, 400
+
+    if "name" not in request.form:
+        return {"message": f"No name provided"}, 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return {"message": "No selected file"}, 400
+
+    # jpg, jpeg, png, gif, webp, mp4, webm, avi, mov, m4v, mkv
+    if not file.filename.endswith(
+        (
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".webp",
+            ".mp4",
+            ".webm",
+            ".avi",
+            ".mov",
+            ".m4v",
+            ".mkv",
+        )
+    ):
+        return {"message": "Invalid file type"}, 400
+
+    if file:
+        filename = secure_filename(file.filename)
+        file.save(
+            fm.get_file_path(filename), buffer_size=ConfigFile().download_buffer_size
+        )
+        f_info, f_id = fm.get_file_info(filename, force_update=True)
+        if "date" in request.form and request.form["date"] != "0":
+            try:
+                f_info["date"] = int(request.form["date"])
+            except ValueError:
+                pass  # Use the guessed date
+        fm.index[f_id] = f_info
+        fm.save_index()
+        return {"message": "OK", "id": f_id}, 200
+    return {"message": "Invalid file"}, 400

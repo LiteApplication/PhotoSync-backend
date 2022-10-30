@@ -6,7 +6,6 @@ name = "pypi"
 [packages]
 flask = "*"
 flask-restful = "*"
-flask-httpauth = "*"
 pillow = "*"
 passlib = "*"
 cryptography = "*"
