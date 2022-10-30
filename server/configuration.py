@@ -1,78 +1,107 @@
 import os
+import random
 import re
+import logging
+
+from cryptography import fernet
+
+log = logging.getLogger("configuration")
 
 
 class ConfigFile:
     DEFAULT = {
-        "storage": "/srv/photosync",
+        "storage": "/srv/photosync/storage",
         "index": "/srv/photosync/index.json",
+        "accounts": "/srv/photosync/accounts.json",
+        "authorization_file": "/srv/photosync/auth.json",
         "address": "0.0.0.0",
         "port": "8080",
+        "ssl": False,
+        "ssl_cert": "/srv/photosync/photosync.crt",
+        "ssl_key": "/srv/photosync/photosync.key",
+        "hash_buffer_size": 65536,  # 64kb
+        # Random key to encrypt passwords
+        "password_key": fernet.Fernet.generate_key().decode("utf-8"),
+        "token_expiration": 31536000,  # 1 year
+        "max_tokens": 32,  # Maximum number of tokens per user
     }
     TYPES = {
         "storage": str,
-        "address": str,
         "index": str,
+        "accounts": str,
+        "authorization_file": str,
+        "address": str,
         "port": int,
+        "ssl": bool,
+        "ssl_cert": str,
+        "ssl_key": str,
+        "hash_buffer_size": int,
+        "password_key": str,
+        "token_expiration": int,
+        "max_tokens": int,
     }
-    __all__ = ['storage', 'address', 'port']
-    def __new__(cls, *args, **qwargs):
-        if not hasattr(cls, 'instance'):
-            cls.instance = super(ConfigFile, cls).__new__(cls)
-            cls.instance.init(*args, **qwargs)
-        return cls.instance
 
-    def init(self, file_name: str):
+    def __init__(self, file_name: str):
         self.file_name = file_name
         self.config = dict()
         self.check_config()
         self.load_config()
 
-    def load_config(self, name = None):
+    def load_config(self, name=None):
         if name is None:
             name = self.file_name
-        print("Loading config ...")
+        log.debug("Loading config ...")
         with open(name, "r") as f:
             for line in f.readlines():
                 match line.replace("=", " = ", 1).split():
-                    case ('#', *comment):
-                        #print("Comment : ", " ".join(comment))
+                    case ("#", *comment):
+                        # log.debug("Comment : ", " ".join(comment))
                         pass
                     case (name, "=", value):
                         if "${" in value:
                             # Replace ${variable} with previously defined variable
                             try:
-                                value = re.sub(r'\${(.*)}', lambda m: self.config[m.group(1)], value)
+                                value = re.sub(
+                                    r"\${(.*)}",
+                                    lambda m: self.config[m.group(1)],
+                                    value,
+                                )
                             except KeyError:
-                                print(f"Error : Invalid variable in line {line}. Currently defined variables : {self.config.keys()}")
+                                log.debug(
+                                    f"Error : Invalid variable in line {line}. Currently defined variables : {self.config.keys()}"
+                                )
                         if name in self.config:
-                            print(f"WARNING : {name} is already defined as {self.config[name]}, redefining as {value}")
+                            log.debug(
+                                f"WARNING : {name} is already defined as {self.config[name]}, redefining as {value}"
+                            )
                         if name in self.TYPES:
                             self.config[name] = self.TYPES[name](value)
-                            print(f"Loaded {name}")
+                            log.debug(f"Loaded {name}")
                         else:
-                            print(f"WARNING : {name} is not a valid setting")
-                            self.config[name] = value # Can still be used for other settings
+                            log.warning(f"{name} is not a valid setting")
+                            self.config[
+                                name
+                            ] = value  # Can still be used for other settings
                     case ():
                         pass
                     case _:
-                        print("WARNING : Weird line :", line)
-        print("Loaded config.")
-    
+                        log.warning("Weird line :", line)
+        log.debug("Loaded config.")
+
     def check_config(self):
         if not os.path.exists(self.file_name):
             self.create_config(self.file_name)
 
     def create_config(self, name):
-        print("Creating config file ...")
-        with open(name, "x") as f: # Create and open the file for write
+        log.debug("Creating config file ...")
+        with open(name, "x") as f:  # Create and open the file for write
             lines = list()
             for name, value in self.DEFAULT.items():
-                lines.append(f'{name}={value}')
-                print(f"Saved {name}")
+                lines.append(f"{name}={value}")
+                log.debug(f"Saved {name}")
             f.write("\n".join(lines))
-        print("Config created successfully. ")
-    
+        log.debug("Config created successfully. ")
+
     def __getattr__(self, name):
         if name in self.config:
             return self.config[name]
@@ -80,9 +109,3 @@ class ConfigFile:
             return self.TYPES[name](self.DEFAULT[name])
         else:
             raise AttributeError(f"ConfigFile has no attribute {name}")
-        
-    
-    
-
-
-

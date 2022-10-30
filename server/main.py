@@ -1,16 +1,77 @@
 #!/usr/bin/python3.10
-import argparse
+import logging
 
+from flask import Flask
+from flask_httpauth import HTTPBasicAuth
+from flask_restful import Api
+
+import accounts
 from configuration import ConfigFile
-import server
+import file_manager
 
-def main():
-    parser = argparse.ArgumentParser(description="Photo synchronizer with a client app, this will store photos on the server leaving space on your phone.")
-    parser.add_argument("--config", "-c", required=False, default="/etc/photosync.conf", type=str)
-    args = parser.parse_args()
-    config = ConfigFile(args.config)
-    server.PhotoSyncServer(config).start()
+app = None
+
+
+def setup_logger():
+    # create logger
+    logger = logging.getLogger("PhotoSync")
+    logger.setLevel(logging.DEBUG)
+
+    # create console handler and set level to debug
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+
+    # create formatter
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    # add formatter to ch
+    ch.setFormatter(formatter)
+
+    # add ch to logger
+    logger.addHandler(ch)
+
+
+def main(config_file: str | None = None, run: bool = True):
+    global app
+
+    setup_logger()
+
+    if config_file is None:
+        config_file = "config.conf"
+    config = ConfigFile(config_file)
+
+    fm = file_manager.FileManager(config)
+    account_manager = accounts.Accounts(config)
+
+    app = Flask(__name__)
+    api = Api(app, "/api")
+    auth = HTTPBasicAuth()
+
+    if config.ssl:
+        context = (config.ssl_cert, config.ssl_key)
+    else:
+        context = None
+
+    # Add api endpoint
+    app.register_blueprint(accounts.bp)
+    app.register_blueprint(accounts.admin)
+    app.register_blueprint(file_manager.bp)
+
+    if run:
+        app.run(config.address, config.port, ssl_context=context)
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Photo synchronizer with a client app, this will store photos on the server leaving space on your phone."
+    )
+    parser.add_argument(
+        "--config", "-c", required=False, default="/etc/photosync.conf", type=str
+    )
+    args = parser.parse_args()
+
+    main(config_file=args.config)
+else:
+    main(run=False)
