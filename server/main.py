@@ -6,6 +6,7 @@ from flask_restful import Api
 
 import accounts
 import file_manager
+import thumbnails
 from configuration import ConfigFile
 
 app = None
@@ -55,6 +56,7 @@ def main(config_file: str | None = None, run: bool = True):
     app.register_blueprint(accounts.admin)
     app.register_blueprint(file_manager.bp)
     app.register_blueprint(file_manager.fileio)
+    app.register_blueprint(thumbnails.bp)
 
     if run:
         app.run(config.address, config.port, ssl_context=context)

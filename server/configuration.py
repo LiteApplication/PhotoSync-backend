@@ -13,6 +13,8 @@ log = logging.getLogger("configuration")
 class ConfigFile(metaclass=Singleton):
     DEFAULT = {
         "storage": "/srv/photosync/storage",
+        "thumbnails_folder": "/srv/photosync/thumbnails",
+        "temp_folder": "/srv/photosync/temp",
         "index": "/srv/photosync/index.json",
         "accounts": "/srv/photosync/accounts.json",
         "authorization_file": "/srv/photosync/auth.json",
@@ -27,9 +29,12 @@ class ConfigFile(metaclass=Singleton):
         "token_expiration": 31536000,  # 1 year
         "max_tokens": 32,  # Maximum number of tokens per user
         "download_buffer_size": 65536,  # 64kb
+        "thumbnail_size": 64,
     }
     TYPES = {
         "storage": str,
+        "thumbnails_folder": str,
+        "temp_folder": str,
         "index": str,
         "accounts": str,
         "authorization_file": str,
@@ -43,6 +48,7 @@ class ConfigFile(metaclass=Singleton):
         "token_expiration": int,
         "max_tokens": int,
         "download_buffer_size": int,
+        "thumbnail_size": int,
     }
 
     def __init__(self, file_name: str):

@@ -3,12 +3,11 @@ import json
 import logging
 import os
 import uuid
-from distutils.command.config import config
-from mimetypes import knownfiles
 from timeit import default_timer as timer
 
 from flask import Blueprint, request, send_file
 from werkzeug.utils import secure_filename
+from PIL import Image
 
 from accounts import Accounts
 from configuration import ConfigFile
@@ -84,6 +83,16 @@ class FileManager(metaclass=Singleton):
 
     def get_file_path(self, name: str):
         return os.path.join(self.path, name)
+
+    def get_path_id(self, f_id: str):
+        if not f_id in self.index:
+            return None
+        return self.index[f_id]["path"]
+
+    def metadata(self, f_id: str):
+        if not f_id in self.index:
+            return None
+        return self.index[f_id]
 
     def get_extension(self, name: str):
         return os.path.splitext(name)[1]
@@ -187,6 +196,13 @@ class FileManager(metaclass=Singleton):
 
     def get_user_files(self, username):
         return [f for f in self.ordered_files if self.index[f]["owner"] == username]
+
+    def create_thumbnail(self, source: str, destination: str, size: int | None = None):
+        if size is None:
+            size = self.config.thumbnail_size
+        with Image.open(source) as im:
+            im.thumbnail((size, size), Image.ANTIALIAS)
+            im.save(destination)
 
 
 @bp.route("/get-by/<string:attribute>/<path:value>")

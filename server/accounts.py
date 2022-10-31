@@ -16,7 +16,7 @@ bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
 admin = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 
-class Accounts(Resource, metaclass=Singleton):
+class Accounts(metaclass=Singleton):
     """Class to manage accounts (this is an API endpoint)
     Accounts are stored in a json file
     {
@@ -249,6 +249,17 @@ def create():
     }
     self._set_accounts(accounts)
     return {"message": "Account created"}, 201
+
+
+@bp.route("/get-name/<string:username>", methods=["GET"])
+def get_name(username: str):
+    """Get the full name of a user"""
+    self = Accounts()
+    accounts = self._get_accounts()
+    username = username.lower()
+    if username not in accounts:
+        return {"message": "Account does not exist"}, 404
+    return {"message": "OK", "fullname": accounts[username]["fullname"]}, 200
 
 
 @bp.route("/test")
