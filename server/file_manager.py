@@ -201,6 +201,21 @@ class FileManager(metaclass=Singleton):
         if size is None:
             size = self.config.thumbnail_size
         with Image.open(source) as im:
+            # Crop the image to a square (centered)
+            width, height = im.size
+            if width > height:
+                left = (width - height) / 2
+                top = 0
+                right = (width + height) / 2
+                bottom = height
+            else:
+                left = 0
+                top = (height - width) / 2
+                right = width
+                bottom = (height + width) / 2
+
+            im = im.crop((left, top, right, bottom))
+
             im.thumbnail((size, size), Image.ANTIALIAS)
             im.save(destination)
 
