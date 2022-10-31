@@ -203,6 +203,7 @@ class FileManager(metaclass=Singleton):
         with Image.open(source) as im:
             # Crop the image to a square (centered)
             width, height = im.size
+
             if width > height:
                 left = (width - height) / 2
                 top = 0
@@ -216,7 +217,9 @@ class FileManager(metaclass=Singleton):
 
             im = im.crop((left, top, right, bottom))
 
+            # Resize the image to the thumbnail size
             im.thumbnail((size, size), Image.ANTIALIAS)
+
             im.save(destination)
 
 
