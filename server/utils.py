@@ -1,4 +1,7 @@
+import datetime
+
 from flask import Blueprint, Response, jsonify, request
+from PIL import Image
 
 
 class Singleton(type):
@@ -67,3 +70,30 @@ def require_admin(func):
     wrapper.__dict__.update(func.__dict__)
 
     return wrapper
+
+
+def get_exif_date(filename):
+    # Exif date has the format %Y:%m:%d %H:%M:%S
+    # We need to convert it to unix timestamp (int)
+
+    convert = lambda x: int(
+        datetime.datetime.strptime(x, "%Y:%m:%d %H:%M:%S").timestamp()
+    )
+    image = Image.open(filename)
+    exif = image._getexif()
+    if exif is None:
+        return None
+
+    # 36867 is the EXIF tag for DateTimeOriginal
+    exif_date = exif.get(36867)
+    if exif_date is not None:
+        return convert(exif_date)
+    # 36868 is the EXIF tag for DateTimeDigitized
+    exif_date = exif.get(36868)
+    if exif_date is not None:
+        return convert(exif_date)
+    # 306 is the EXIF tag for DateTime
+    exif_date = exif.get(306)
+    if exif_date is not None:
+        return convert(exif_date)
+    return None

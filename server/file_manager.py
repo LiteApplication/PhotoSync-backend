@@ -4,20 +4,32 @@ import logging
 import os
 import uuid
 from distutils.command.config import config
+from mimetypes import knownfiles
 from timeit import default_timer as timer
 
 from flask import Blueprint, request, send_file
-from PIL import Image
 from werkzeug.utils import secure_filename
 
 from accounts import Accounts
 from configuration import ConfigFile
-from utils import Singleton, require_admin, require_login
+from utils import Singleton, get_exif_date, require_admin, require_login
 
 log = logging.getLogger("file_manager")
 
 bp = Blueprint("file_manager", __name__, url_prefix="/api/files")
 fileio = Blueprint("fileio", __name__, url_prefix="/api/fileio")
+
+
+SHARED_KEYS = [
+    "name",
+    "date",
+    "extension",
+    "type",
+    "format",
+    "owner",
+    "id",
+    "hash",
+]
 
 
 def creation_date(path_to_file):
@@ -40,6 +52,7 @@ class FileManager(metaclass=Singleton):
         self.config = config
         self.path = config.storage
         self.known_files = set()
+        self.ordered_files = []
         self.load_index()  # Index is a dict with the id as key
 
         if not os.path.exists(self.path):
@@ -48,9 +61,22 @@ class FileManager(metaclass=Singleton):
     def load_index(self):
         if not os.path.exists(self.config.index):
             self.index = {}
+            with open(self.config.index, "w") as f:
+                f.write("{}")
+            self.known_files = set()
+            self.ordered_files = []
+            print("Index file created")
+            return
         with open(self.config.index, "r") as f:
             self.index = json.load(f)
             self.known_files = {f["name"] for f in self.index.values()}
+            self.update_order()
+            print("Loaded index with", len(self.index), "files")
+
+    def update_order(self):
+        self.ordered_files = sorted(
+            self.index, key=lambda f: self.index[f]["date"], reverse=True
+        )
 
     def save_index(self):
         with open(self.config.index, "w") as f:
@@ -64,7 +90,7 @@ class FileManager(metaclass=Singleton):
 
     def get_known_files(self):
         for f_id in self.index:
-            yield self.index[f_id]["name"]
+            yield self.index[f_id]["id"]
 
     def get_file_info(self, name: str, force_update: bool = False):
         if (
@@ -134,11 +160,8 @@ class FileManager(metaclass=Singleton):
                 info["format"] = os.path.splitext(name)[1][1:]
         if info["type"] == "image":
             try:
-                info["date"] = (
-                    Image.open(self.get_file_path(name))
-                    .getexif()
-                    .get(36867, default=info["date"])
-                )
+                d = get_exif_date(self.get_file_path(name))
+                info["date"] = d if d else info["date"]
             except:
                 print("Error while reading exif data for :", name)
         info["path"] = self.get_file_path(name)
@@ -162,6 +185,9 @@ class FileManager(metaclass=Singleton):
     def get_all_infos(self):
         return self.index
 
+    def get_user_files(self, username):
+        return [f for f in self.ordered_files if self.index[f]["owner"] == username]
+
 
 @bp.route("/get-by/<string:attribute>/<path:value>")
 @require_login
@@ -172,18 +198,7 @@ def get_by_attribute(attribute, value):
     user = account.get_user()
     admin = user["admin"]
 
-    shared_keys = [
-        "name",
-        "date",
-        "extension",
-        "type",
-        "format",
-        "owner",
-        "id",
-        "hash",
-    ]
-
-    if attribute not in shared_keys:
+    if attribute not in SHARED_KEYS:
         return {"message": "Invalid attribute"}, 400
 
     if attribute == "owner":
@@ -195,10 +210,10 @@ def get_by_attribute(attribute, value):
     if attribute == "id":
         if value not in fm.index:
             return {"message": "File not found"}, 404
-        return {k: fm.index[value][k] for k in shared_keys}
+        return {k: fm.index[value][k] for k in SHARED_KEYS}
 
     return [
-        {k: fm.index[f_id][k] for k in shared_keys}
+        {k: fm.index[f_id][k] for k in SHARED_KEYS}
         for f_id in fm.index
         if fm.index[f_id][attribute] == value
         and (fm.index[f_id]["owner"] == user["username"] or admin)
@@ -208,7 +223,53 @@ def get_by_attribute(attribute, value):
 @bp.route("/get-all")
 @require_admin
 def get_all():
-    return FileManager().get_all_infos()
+    # Return all files in the index
+    fm = FileManager()
+    return fm.get_all_infos()
+
+
+@bp.route("/file-list")
+@require_login
+def get_file_list():
+    # Return all the files owned by the user
+    # in the correct order
+    fm = FileManager()
+    account = Accounts()
+
+    user = account.get_user()
+
+    return [
+        {k: fm.index[f_id][k] for k in SHARED_KEYS}
+        for f_id in fm.ordered_files
+        if fm.index[f_id]["owner"] == user["username"]
+    ]
+
+
+@bp.route("/file-list/<string:last_id>/<int:count>")
+@require_login
+def get_file_list_from(last_id, count):
+    # Return all the files owned by the user
+    # in the correct order
+    fm = FileManager()
+    account = Accounts()
+
+    user = account.get_user()
+    user_files = fm.get_user_files(user["username"])
+
+    if last_id == "null":
+        last_index = 0
+    elif last_id not in fm.index:
+        return {"message": "File not found"}, 404
+    else:
+        last_index = user_files.index(last_id)
+
+    count = min(count, len(user_files) + last_index)
+
+    return [
+        {k: fm.index[f_id][k] for k in SHARED_KEYS}
+        for f_id in user_files[last_index : last_index + count]
+        if fm.index[f_id]["owner"] == user["username"]
+    ]
 
 
 @bp.route("/reload", methods=["PATCH"])

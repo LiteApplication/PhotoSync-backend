@@ -1,4 +1,5 @@
 config.conf
 data/
+postman/
 
 **/__pycache__/**
