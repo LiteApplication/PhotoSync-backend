@@ -7,7 +7,6 @@ from timeit import default_timer as timer
 
 from flask import Blueprint, request, send_file
 from werkzeug.utils import secure_filename
-from PIL import Image
 
 from accounts import Accounts
 from configuration import ConfigFile
@@ -102,6 +101,8 @@ class FileManager(metaclass=Singleton):
             yield self.index[f_id]["id"]
 
     def get_file_info(self, name: str, force_update: bool = False):
+        import thumbnails
+
         if (
             not force_update
             and name in self.known_files
@@ -118,6 +119,8 @@ class FileManager(metaclass=Singleton):
         info["date"] = creation_date(self.get_file_path(name))
         info["owner"] = "<index>"
         info["id"] = str(uuid.uuid4())
+        info["metadata"] = {}
+        info["rights"] = []
 
         # Compute hash md5 for the file
         h = hashlib.md5()
@@ -131,7 +134,7 @@ class FileManager(metaclass=Singleton):
         info["hash"] = h.hexdigest()
 
         unsupported = False
-        match self.get_extension(name):
+        match self.get_extension(name).lower():
             case (".jpg" | ".jpeg"):
                 info["type"] = "image"
                 info["format"] = "jpeg"
@@ -162,6 +165,9 @@ class FileManager(metaclass=Singleton):
             case (".mkv"):
                 info["type"] = "video"
                 info["format"] = "mkv"
+            case (".3gp"):
+                info["type"] = "video"
+                info["format"] = "3gp"
             case _:
                 print("Unsupported file type :", name)
                 unsupported = True
@@ -173,7 +179,23 @@ class FileManager(metaclass=Singleton):
                 info["date"] = d if d else info["date"]
             except:
                 print("Error while reading exif data for :", name)
+        elif info["type"] == "video":
+            # Get the creation date from the video metadata
+            try:
+                import mutagen
+
+                metadata = mutagen.File(self.get_file_path(name))
+                if metadata:
+                    d = metadata.get("creation_time")
+                    if d:
+                        info["date"] = d[0]
+            except:
+                print("Error while reading metadata for :", name)
+
         info["path"] = self.get_file_path(name)
+        info["color"] = thumbnails.get_file_color(
+            self.get_file_path(name), info["type"]
+        )
 
         return info, info["id"]
 
@@ -194,33 +216,28 @@ class FileManager(metaclass=Singleton):
     def get_all_infos(self):
         return self.index
 
+    def is_allowed(self, f_id: str, user: str):
+        # Check if the file exists
+        if not f_id in self.index:
+            return False
+
+        # Check if the user is the owner
+        if self.index[f_id]["owner"] == user:
+            return True
+
+        # Check if the file is public
+        if "public" in self.index[f_id]["rights"]:
+            return True
+
+        # Check if the user is in the allowed list
+        if user in self.index[f_id]["rights"]:
+            return True
+
+        # Check if the user is an admin
+        return Accounts().get_user(user)["admin"]
+
     def get_user_files(self, username):
-        return [f for f in self.ordered_files if self.index[f]["owner"] == username]
-
-    def create_thumbnail(self, source: str, destination: str, size: int | None = None):
-        if size is None:
-            size = self.config.thumbnail_size
-        with Image.open(source) as im:
-            # Crop the image to a square (centered)
-            width, height = im.size
-
-            if width > height:
-                left = (width - height) / 2
-                top = 0
-                right = (width + height) / 2
-                bottom = height
-            else:
-                left = 0
-                top = (height - width) / 2
-                right = width
-                bottom = (height + width) / 2
-
-            im = im.crop((left, top, right, bottom))
-
-            # Resize the image to the thumbnail size
-            im.thumbnail((size, size), Image.ANTIALIAS)
-
-            im.save(destination)
+        return [f for f in self.ordered_files if self.is_allowed(f, username)]
 
 
 @bp.route("/get-by/<string:attribute>/<path:value>")
@@ -244,13 +261,14 @@ def get_by_attribute(attribute, value):
     if attribute == "id":
         if value not in fm.index:
             return {"message": "File not found"}, 404
+        if not fm.is_allowed(value, user["username"]):
+            return {"message": "You are not allowed to do that"}, 403
         return {k: fm.index[value][k] for k in SHARED_KEYS}
 
     return [
         {k: fm.index[f_id][k] for k in SHARED_KEYS}
         for f_id in fm.index
-        if fm.index[f_id][attribute] == value
-        and (fm.index[f_id]["owner"] == user["username"] or admin)
+        if fm.index[f_id][attribute] == value and fm.is_allowed(f_id, user["username"])
     ]
 
 
@@ -326,6 +344,7 @@ def reload_index():
         fm.save_index()
         end = timer()
     except Exception as e:
+        raise
         return {"message": e.args}, 500
     return {"message": "OK", "elapsed": (end - start) * 1000}, 200
 
@@ -349,12 +368,11 @@ def download_file(f_id: str):
     account = Accounts()
 
     user = account.get_user()
-    admin = user["admin"]
 
     if f_id not in fm.index:
         return {"message": "File not found"}, 404
 
-    if not admin and fm.index[f_id]["owner"] != user["username"]:
+    if not fm.is_allowed(f_id, user["username"]):
         print(fm.index[f_id]["owner"], user["username"])
         return {"message": "You are not allowed to do that"}, 403
 
