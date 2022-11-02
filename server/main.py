@@ -1,8 +1,9 @@
 #!/usr/bin/python3.10
 import logging
 
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask_restful import Api
+from flask_cors import CORS
 
 import accounts
 import file_manager
@@ -44,6 +45,9 @@ def main(config_file: str | None = None, run: bool = True):
     account_manager = accounts.Accounts(config)
 
     app = Flask(__name__)
+
+    # Allow cross origin requests
+    CORS(app, resources={r"*": {"origins": "*"}}, max_age=config.cache_time)
     api = Api(app, "/api")
 
     if config.ssl:
@@ -57,9 +61,15 @@ def main(config_file: str | None = None, run: bool = True):
     app.register_blueprint(file_manager.bp)
     app.register_blueprint(file_manager.fileio)
     app.register_blueprint(thumbnails.bp)
+    app.add_url_rule("/<path:path>", "static_web", static_web)
 
     if run:
-        app.run(config.address, config.port, ssl_context=context)
+        print(config.ssl)
+        app.run(config.address, config.port, ssl_context=context, threaded=True)
+
+
+def static_web(path):
+    return send_from_directory(ConfigFile().web_folder, path)
 
 
 if __name__ == "__main__":
