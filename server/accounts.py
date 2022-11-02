@@ -201,7 +201,7 @@ def login():
     # Add a valid token
     token = self._add_valid_token(username)
 
-    return {"message": "Logged in", "token": token}, 200
+    return {"message": "OK", "token": token}, 200
 
 
 @bp.route("/create", methods=["PUT"])
@@ -248,7 +248,7 @@ def create():
         "metadata": {},  # Future use
     }
     self._set_accounts(accounts)
-    return {"message": "Account created"}, 201
+    return {"message": "OK"}, 201
 
 
 @bp.route("/get-name/<string:username>", methods=["GET"])
