@@ -15,7 +15,7 @@ class ConfigFile(metaclass=Singleton):
         "storage": "/srv/photosync/storage",
         "thumbnails_folder": "/srv/photosync/thumbnails",
         "temp_folder": "/srv/photosync/temp",
-        "web_folder": "/srv/photosync/web",
+        "web_folder": "web",
         "index": "/srv/photosync/index.json",
         "accounts": "/srv/photosync/accounts.json",
         "authorization_file": "/srv/photosync/auth.json",
