@@ -15,6 +15,7 @@ class ConfigFile(metaclass=Singleton):
         "storage": "/srv/photosync/storage",
         "thumbnails_folder": "/srv/photosync/thumbnails",
         "temp_folder": "/srv/photosync/temp",
+        "web_folder": "/srv/photosync/web",
         "index": "/srv/photosync/index.json",
         "accounts": "/srv/photosync/accounts.json",
         "authorization_file": "/srv/photosync/auth.json",
@@ -29,12 +30,14 @@ class ConfigFile(metaclass=Singleton):
         "token_expiration": 31536000,  # 1 year
         "max_tokens": 32,  # Maximum number of tokens per user
         "download_buffer_size": 65536,  # 64kb
-        "thumbnail_size": 64,
+        "thumbnail_size": 128,
+        "cache_time": 2628000,  # 1 month
     }
     TYPES = {
         "storage": str,
         "thumbnails_folder": str,
         "temp_folder": str,
+        "web_folder": str,
         "index": str,
         "accounts": str,
         "authorization_file": str,
@@ -49,6 +52,7 @@ class ConfigFile(metaclass=Singleton):
         "max_tokens": int,
         "download_buffer_size": int,
         "thumbnail_size": int,
+        "cache_time": int,
     }
 
     def __init__(self, file_name: str):
@@ -85,6 +89,8 @@ class ConfigFile(metaclass=Singleton):
                                 f"WARNING : {name} is already defined as {self.config[name]}, redefining as {value}"
                             )
                         if name in self.TYPES:
+                            if self.TYPES[name] is bool:
+                                value = value.lower() == "true"
                             self.config[name] = self.TYPES[name](value)
                             log.debug(f"Loaded {name}")
                         else:
