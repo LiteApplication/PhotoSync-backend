@@ -1,13 +1,15 @@
 import os
-from time import time
 import zipfile
+from time import time
 
-from flask import Blueprint, send_file, request
+import cv2
+from PIL import Image
+from flask import Blueprint, request, send_file
 
 from accounts import Accounts
+from configuration import ConfigFile
 from file_manager import FileManager
 from utils import require_login
-from configuration import ConfigFile
 
 bp = Blueprint("thumbnails", __name__, url_prefix="/api/timg")
 
@@ -41,16 +43,25 @@ def get_thumbnail(f_id: str, size: int):
 
         # Create the thumbnail
         if fm.metadata(f_id).get("type") == "image":
-            fm.create_thumbnail(file_path, thumbnail_path, size)
+            create_thumbnail(file_path, thumbnail_path, size)
             print("Created thumbnail for", file_path)
-        else:
-            return {"message": "Thumbnail not found"}, 404
 
-    return send_file(
-        thumbnail_path,
-        mimetype="image/png",
-        as_attachment=False,
-        download_name=f_id + ".png",
+        elif fm.metadata(f_id).get("type") == "video":
+            create_video_thumbnail(file_path, thumbnail_path, size)
+            print("Created thumbnail for video", file_path)
+        else:
+            return {"message": "Thumbnail not available"}, 400
+
+    # Cache the thumbnail for 1 day
+    return (
+        send_file(
+            thumbnail_path,
+            mimetype="image/png",
+            as_attachment=False,
+            download_name=f_id + ".png",
+        ),
+        200,
+        {"Cache-Control": f"max-age={conf.cache_time}"},
     )
 
 
@@ -90,8 +101,11 @@ def get_multiple_thumbnails(size: int):
         if not os.path.exists(thumbnail_path):
             # Create the thumbnail
             if fm.metadata(f_id).get("type") == "image":
-                fm.create_thumbnail(file_path, thumbnail_path, size)
+                create_thumbnail(file_path, thumbnail_path, size)
                 print("Created thumbnail for", file_path)
+            elif fm.metadata(f_id).get("type") == "video":
+                create_video_thumbnail(file_path, thumbnail_path, size)
+                print("Created thumbnail for video", file_path)
             else:
                 return {"message": f"Could not create thumbnail ({f_id})"}, 404
 
@@ -114,3 +128,72 @@ def get_multiple_thumbnails(size: int):
         as_attachment=True,
         download_name="thumbnails.zip",
     )
+
+
+def create_thumbnail(self, source: str, destination: str, size: int | None = None):
+    if size is None:
+        size = self.config.thumbnail_size
+    with Image.open(source) as im:
+        # Crop the image to a square (centered)
+        width, height = im.size
+
+        if width > height:
+            left = (width - height) / 2
+            top = 0
+            right = (width + height) / 2
+            bottom = height
+        else:
+            left = 0
+            top = (height - width) / 2
+            right = width
+            bottom = (height + width) / 2
+
+        im = im.crop((left, top, right, bottom))
+
+        # Resize the image to the thumbnail size
+        im.thumbnail((size, size), Image.ANTIALIAS)
+
+        im.save(destination)
+
+
+def create_video_thumbnail(video_path: str, thumbnail_path: str, size: int):
+
+    # Open the video
+    cap = cv2.VideoCapture(video_path)
+
+    # Get the total number of frames
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # Get the frame at 1/3rd of the video
+    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames // 3)
+    _, frame = cap.read()
+
+    # Save the frame as a thumbnail
+    cv2.imwrite(thumbnail_path, frame)
+
+    cap.release()
+
+    # Resize the thumbnail
+    FileManager.create_thumbnail(thumbnail_path, thumbnail_path, size)
+
+
+# Get the main color of the image as #RRGGBB
+def get_file_color(path, type):
+    if type == "image":
+        img = Image.open(path)
+        img = img.resize((1, 1))
+        color = img.getpixel((0, 0))
+        if isinstance(color, int):
+            color = (color, color, color)
+        return "#" + "".join([f"{c:02x}" for c in color])
+    elif type == "video":
+        cap = cv2.VideoCapture(path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames // 3)
+        _, frame = cap.read()
+        frame.resize((1, 1))
+        color = frame[0][0]
+        cap.release()
+        return f"#{color:06x}"
+    else:
+        return "#000000"
