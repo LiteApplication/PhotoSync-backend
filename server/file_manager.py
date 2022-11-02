@@ -234,7 +234,7 @@ class FileManager(metaclass=Singleton):
             return True
 
         # Check if the user is an admin
-        return Accounts().get_user(user)["admin"]
+        return Accounts()._get_accounts()[user]["admin"]
 
     def get_user_files(self, username):
         return [f for f in self.ordered_files if self.is_allowed(f, username)]
