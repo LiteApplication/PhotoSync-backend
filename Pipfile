@@ -9,6 +9,8 @@ flask-restful = "*"
 pillow = "*"
 passlib = "*"
 cryptography = "*"
+flask-cors = "*"
+opencv-python = "*"
 
 [dev-packages]
 black = "*"
