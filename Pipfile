@@ -11,6 +11,7 @@ passlib = "*"
 cryptography = "*"
 flask-cors = "*"
 opencv-python = "*"
+mutagen = "*"
 
 [dev-packages]
 black = "*"
