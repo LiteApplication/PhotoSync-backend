@@ -1,4 +1,5 @@
 import datetime
+import re
 
 from flask import Blueprint, Response, jsonify, request
 from PIL import Image
@@ -96,4 +97,21 @@ def get_exif_date(filename):
     exif_date = exif.get(306)
     if exif_date is not None:
         return convert(exif_date)
-    return None
+
+    # If we reach this point, we didn't find any date
+    # we try to get the date from the filename
+    return get_date_filename(filename)
+
+
+def get_date_filename(filename):
+    if filename is None:
+        return None
+    pattern = r"(\d{4})[\._-]?(\d{2})[\._-]?(\d{2})"
+    match = re.search(pattern, filename)
+    if match is None:
+        return None
+    return int(
+        datetime.datetime(
+            int(match.group(1)), int(match.group(2)), int(match.group(3))
+        ).timestamp()
+    )
