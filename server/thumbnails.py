@@ -130,9 +130,9 @@ def get_multiple_thumbnails(size: int):
     )
 
 
-def create_thumbnail(self, source: str, destination: str, size: int | None = None):
+def create_thumbnail(source: str, destination: str, size: int | None = None):
     if size is None:
-        size = self.config.thumbnail_size
+        size = ConfigFile().thumbnail_size
     with Image.open(source) as im:
         # Crop the image to a square (centered)
         width, height = im.size
@@ -174,7 +174,7 @@ def create_video_thumbnail(video_path: str, thumbnail_path: str, size: int):
     cap.release()
 
     # Resize the thumbnail
-    FileManager.create_thumbnail(thumbnail_path, thumbnail_path, size)
+    create_thumbnail(thumbnail_path, thumbnail_path, size)
 
 
 # Get the main color of the image as #RRGGBB
@@ -185,6 +185,8 @@ def get_file_color(path, type):
         color = img.getpixel((0, 0))
         if isinstance(color, int):
             color = (color, color, color)
+        if len(color) == 4:
+            color = color[3:]
         return "#" + "".join([f"{c:02x}" for c in color])
     elif type == "video":
         cap = cv2.VideoCapture(path)
