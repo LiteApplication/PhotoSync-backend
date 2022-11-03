@@ -81,9 +81,12 @@ def get_exif_date(filename):
         datetime.datetime.strptime(x, "%Y:%m:%d %H:%M:%S").timestamp()
     )
     image = Image.open(filename)
-    exif = image._getexif()
+    try:
+        exif = image._getexif()
+    except AttributeError:
+        exif = {}
     if exif is None:
-        return None
+        exif = {}
 
     # 36867 is the EXIF tag for DateTimeOriginal
     exif_date = exif.get(36867)
@@ -106,12 +109,20 @@ def get_exif_date(filename):
 def get_date_filename(filename):
     if filename is None:
         return None
-    pattern = r"(\d{4})[\._-]?(\d{2})[\._-]?(\d{2})"
+    pattern = r".*?((?:20|19)\d{2})-?(0\d|1[0-2])-?(0\d|1\d|2\d|3[0-1])"
     match = re.search(pattern, filename)
-    if match is None:
-        return None
-    return int(
-        datetime.datetime(
-            int(match.group(1)), int(match.group(2)), int(match.group(3))
-        ).timestamp()
-    )
+    if match is not None:
+        return int(
+            datetime.datetime(
+                year=int(match.group(1)),
+                month=int(match.group(2)),
+                day=int(match.group(3)),
+            ).timestamp()
+        )
+    pattern = r".*?((?:20|19)\d{2})"
+    match = re.search(pattern, filename)
+    if match is not None:
+        return int(
+            datetime.datetime(year=int(match.group(1)), month=1, day=1).timestamp()
+        )
+    return None
