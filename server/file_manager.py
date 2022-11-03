@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import uuid
 from timeit import default_timer as timer
 
@@ -19,7 +20,8 @@ fileio = Blueprint("fileio", __name__, url_prefix="/api/fileio")
 
 
 SHARED_KEYS = [
-    "name",
+    "color",
+    "path",
     "date",
     "extension",
     "type",
@@ -67,7 +69,7 @@ class FileManager(metaclass=Singleton):
             return
         with open(self.config.index, "r") as f:
             self.index = json.load(f)
-            self.known_files = {f["name"] for f in self.index.values()}
+            self.known_files = {f["path"] for f in self.index.values()}
             self.update_order()
             print("Loaded index with", len(self.index), "files")
 
@@ -86,7 +88,7 @@ class FileManager(metaclass=Singleton):
     def get_path_id(self, f_id: str):
         if not f_id in self.index:
             return None
-        return self.index[f_id]["path"]
+        return self.get_file_path(self.index[f_id]["path"])
 
     def metadata(self, f_id: str):
         if not f_id in self.index:
@@ -100,31 +102,31 @@ class FileManager(metaclass=Singleton):
         for f_id in self.index:
             yield self.index[f_id]["id"]
 
-    def get_file_info(self, name: str, force_update: bool = False):
+    def get_file_info(self, rel_path: str, force_update: bool = False):
         import thumbnails
 
         if (
             not force_update
-            and name in self.known_files
-            and os.path.exists(self.get_file_path(name))
+            and rel_path in self.known_files
+            and os.path.exists(self.get_file_path(rel_path))
         ):
-            return self.index[name]
-        self.known_files.add(name)
-        if not os.path.exists(self.get_file_path(name)):
+            return self.index[rel_path]
+        self.known_files.add(rel_path)
+        if not os.path.exists(self.get_file_path(rel_path)):
             return None
         info = {}
-        info["name"] = name
-        info["path"] = self.get_file_path(name)
-        info["extension"] = self.get_extension(name)
-        info["date"] = creation_date(self.get_file_path(name))
+        info["path"] = rel_path
+        info["extension"] = self.get_extension(rel_path)
+        info["date"] = creation_date(self.get_file_path(rel_path))
         info["owner"] = "<index>"
         info["id"] = str(uuid.uuid4())
         info["metadata"] = {}
+        info["user_tags"] = {}
         info["rights"] = []
 
         # Compute hash md5 for the file
         h = hashlib.md5()
-        with open(self.get_file_path(name), "rb") as f:
+        with open(self.get_file_path(rel_path), "rb") as f:
             while True:
                 data = f.read(self.config.hash_buffer_size)
                 if not data:
@@ -134,7 +136,7 @@ class FileManager(metaclass=Singleton):
         info["hash"] = h.hexdigest()
 
         unsupported = False
-        match self.get_extension(name).lower():
+        match self.get_extension(rel_path).lower():
             case (".jpg" | ".jpeg"):
                 info["type"] = "image"
                 info["format"] = "jpeg"
@@ -169,47 +171,54 @@ class FileManager(metaclass=Singleton):
                 info["type"] = "video"
                 info["format"] = "3gp"
             case _:
-                print("Unsupported file type :", name)
+                print("Unsupported file type :", rel_path)
                 unsupported = True
                 info["type"] = "unknown"
-                info["format"] = os.path.splitext(name)[1][1:]
+                info["format"] = os.path.splitext(rel_path)[1][1:]
         if info["type"] == "image":
             try:
-                d = get_exif_date(self.get_file_path(name))
+                d = get_exif_date(self.get_file_path(rel_path))
                 info["date"] = d if d else info["date"]
             except:
-                print("Error while reading exif data for :", name)
+                raise
+                print("Error while reading exif data for :", rel_path)
+
         elif info["type"] == "video":
             # Get the creation date from the video metadata
             try:
                 import mutagen
 
-                metadata = mutagen.File(self.get_file_path(name))
+                metadata = mutagen.File(self.get_file_path(rel_path))
                 if metadata:
                     d = metadata.get("creation_time")
                     if d:
                         info["date"] = d[0]
             except:
-                print("Error while reading metadata for :", name)
+                print("Error while reading metadata for :", rel_path)
 
-        info["path"] = self.get_file_path(name)
         info["color"] = thumbnails.get_file_color(
-            self.get_file_path(name), info["type"]
+            self.get_file_path(rel_path), info["type"]
         )
 
         return info, info["id"]
 
-    def populate_index(self, force_update: bool = False):
+    def populate_index(
+        self, force_update: bool = False, path_id: dict[str, str] | None = None
+    ):
+        # Use name_id to preserve ids across upgrades in the index
+        use_name = path_id is not None
         for root, dirs, files in os.walk(self.path):
             root = root.replace(self.path, "", 1)
             if root.startswith(os.sep):
                 root = root[1:]
             for file in files:
-                if os.path.join(root, file) in self.known_files:
+                path = os.path.join(root, file)
+                if path in self.known_files:
                     continue
-                f_info, f_id = self.get_file_info(
-                    os.path.join(root, file), force_update
-                )
+                f_info, f_id = self.get_file_info(path, force_update)
+                if use_name:
+                    f_id = path_id.get(path, f_id)  # Change f_id if available
+                    f_info["id"] = f_id
                 self.index[f_id] = f_info
                 log.debug(f"Indexed {file}")
 
@@ -238,6 +247,88 @@ class FileManager(metaclass=Singleton):
 
     def get_user_files(self, username):
         return [f for f in self.ordered_files if self.is_allowed(f, username)]
+
+
+@bp.route("/upgrade-index", methods=["PATCH"])
+@require_admin
+def upgrade_index():
+    print("Upgrading index")
+
+    begin = timer()
+
+    fm = FileManager()
+    config = ConfigFile()
+
+    # Stats
+    entries_modified = 0
+    fields_dropped = set()
+    entries_dropped = 0
+
+    # Read the index
+    fm.load_index()
+    index = fm.get_all_infos().copy()
+
+    # Save the name-id matchings
+    path_id = {v["path"]: k for k, v in index.items()}
+
+    # Clear the index
+    fm.index = {}
+    shutil.copy(config.index, config.index + ".bak")
+    try:
+        with open(config.index, "w") as f:
+            json.dump({}, f)
+        fm.known_files = set()
+        fm.odered_files = []
+
+        # Repopulate the index
+        fm.populate_index(force_update=True, path_id=path_id)
+
+        # Merge the old index with the new one
+        for f_id in index:
+            if f_id in fm.index:
+                # The file is still here, we can merge the data
+                for k in index[f_id]:
+                    if k in fm.index[f_id]:
+                        t = type(fm.index[f_id][k])
+                        if fm.index[f_id][k] != index[f_id][k]:
+                            fm.index[f_id][k] = t(index[f_id][k])
+                            entries_modified += 1
+                        # Convert the type if possible
+                        try:
+                            fm.index[f_id][k] = t(fm.index[f_id][k])
+                        except:
+                            pass
+                    else:
+                        if not k in fields_dropped:
+                            print("Dropping field :", k)
+                        fields_dropped.add(k)
+
+            else:
+                # The file was removed, we can't merge the data
+                entries_dropped += 1
+                print("Dropping entry :", f_id)
+                pass
+
+        # Save the index
+        with open(config.index, "w") as f:
+            json.dump(fm.index, f)
+        fm.update_order()
+
+        return {
+            "message": "OK",
+            "entries_modified": entries_modified,
+            "fields_dropped": list(fields_dropped),
+            "entries_dropped": entries_dropped,
+            "elapsed_time_ms": (timer() - begin) * 1000,
+        }
+    except Exception as e:
+        import traceback
+
+        # Restore index in case of failure
+        shutil.move(config.index + ".bak", config.index)
+
+        print(traceback.format_exc())
+        return traceback.format_exc()
 
 
 @bp.route("/get-by/<string:attribute>/<path:value>")
@@ -319,7 +410,7 @@ def get_file_list_from(last_id, count):
 
     return [
         {k: fm.index[f_id][k] for k in SHARED_KEYS}
-        for f_id in user_files[last_index : last_index + count]
+        for f_id in user_files[last_index + 1 : last_index + count]
         if fm.index[f_id]["owner"] == user["username"]
     ]
 
@@ -336,8 +427,8 @@ def reload_index():
 
         # Remove files that are not in the storage anymore
         for f_id in list(fm.index):
-            if not os.path.exists(fm.get_file_path(fm.index[f_id]["name"])):
-                name = fm.index[f_id]["name"]
+            if not os.path.exists(fm.get_file_path(fm.index[f_id]["path"])):
+                name = fm.index[f_id]["path"]
                 del fm.index[f_id]
                 if name in fm.known_files:
                     fm.known_files.remove(name)
@@ -357,7 +448,7 @@ def refresh_index():
     fm.load_index()
     fm.known_files.clear()
     for f_id in fm.index:
-        fm.known_files.add(fm.index[f_id]["name"])
+        fm.known_files.add(fm.index[f_id]["path"])
     return {"message": "OK"}, 200
 
 
@@ -377,9 +468,9 @@ def download_file(f_id: str):
         return {"message": "You are not allowed to do that"}, 403
 
     return send_file(
-        fm.get_file_path(fm.index[f_id]["name"]),
+        fm.get_file_path(fm.index[f_id]["path"]),
         as_attachment=True,
-        download_name=fm.index[f_id]["name"],
+        download_name=fm.index[f_id]["path"],
         last_modified=fm.index[f_id]["date"],
     )
 
