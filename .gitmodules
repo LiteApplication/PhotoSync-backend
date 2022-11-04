@@ -1,3 +1,4 @@
 [submodule "web"]
 	path = web
 	url = git@github.com:LiteApplication/PhotoSync-web.git
+	branch = main
