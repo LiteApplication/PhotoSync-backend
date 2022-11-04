@@ -388,7 +388,7 @@ def get_file_list():
     ]
 
 
-@bp.route("/file-list/<string:last_id>/<int:count>")
+@bp.route("/file-list/id/<string:last_id>/<int:count>")
 @require_login
 def get_file_list_from(last_id, count):
     # Return all the files owned by the user
@@ -412,6 +412,61 @@ def get_file_list_from(last_id, count):
         {k: fm.index[f_id][k] for k in SHARED_KEYS}
         for f_id in user_files[last_index + 1 : last_index + count]
         if fm.index[f_id]["owner"] == user["username"]
+    ]
+
+
+@bp.route("/file-list/before/<int:timestamp>/<int:count>")
+@require_login
+def get_file_list_after(timestamp, count):
+    # Return all the files owned by the user
+    # in the correct order
+    fm = FileManager()
+    account = Accounts()
+
+    user = account.get_user()
+    user_files = fm.get_user_files(user["username"])
+
+    # Find the first file before the timestamp
+    last_index = 0
+    for f_id in user_files:
+        if fm.index[f_id]["date"] < timestamp:
+            break
+        last_index += 1
+
+    count = min(count, len(user_files) + last_index)
+
+    return [
+        {k: fm.index[f_id][k] for k in SHARED_KEYS}
+        for f_id in user_files[last_index + 1 : last_index + count]
+        if fm.index[f_id]["owner"] == user["username"]
+    ]
+
+
+@bp.route("/file-list/between/<int:timestamp1>/<int:timestamp2>/<int:count>")
+@require_login
+def get_file_list_between(timestamp1, timestamp2, count):
+    # Return all the files owned by the user
+    # in the correct order
+    fm = FileManager()
+    account = Accounts()
+
+    user = account.get_user()
+    user_files = fm.get_user_files(user["username"])
+
+    # Find the first file before the timestamp
+    last_index = 0
+    for f_id in user_files:
+        if fm.index[f_id]["date"] < timestamp1:
+            break
+        last_index += 1
+
+    count = min(count, len(user_files) + last_index)
+
+    return [
+        {k: fm.index[f_id][k] for k in SHARED_KEYS}
+        for f_id in user_files[last_index + 1 : last_index + count]
+        if fm.index[f_id]["owner"] == user["username"]
+        and fm.index[f_id]["date"] < timestamp2
     ]
 
 
@@ -535,3 +590,32 @@ def upload_file():
         fm.save_index()
         return {"message": "OK", "id": f_id}, 200
     return {"message": "Invalid file"}, 400
+
+
+@bp.route("/delete/<string:f_id>", methods=["DELETE"])
+@require_login
+def delete_file(f_id: str):
+    fm = FileManager()
+    account = Accounts()
+    trash = ConfigFile().trash_folder
+
+    user = account.get_user()
+
+    if f_id not in fm.index:
+        return {"message": "File not found"}, 404
+
+    if not fm.is_allowed(f_id, user["username"]):
+        return {"message": "You are not allowed to do that"}, 403
+
+    # Move the file to the trash folder (create a folder for the user)
+    if not os.path.exists(os.path.join(trash, user["username"])):
+        os.makedirs(os.path.join(trash, user["username"]))
+    os.rename(
+        fm.get_file_path(fm.index[f_id]["path"]),
+        os.path.join(trash, user["username"], os.path.basename(fm.index[f_id]["path"])),
+    )
+
+    del fm.index[f_id]
+    fm.save_index()
+
+    return {"message": "OK"}, 200
