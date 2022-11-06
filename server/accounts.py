@@ -15,6 +15,20 @@ from utils import Singleton, require_admin, require_login
 bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
 admin = Blueprint("admin", __name__, url_prefix="/api/admin")
 
+INDEX_ACCOUNT = {
+    "username": "<index>",
+    "fullname": "System Indexer",
+    "password": "",
+    "encrypted": "",
+    "user_id": "<index>",
+    "created": 0,
+    "last_login": 0,
+    "admin": True,
+    "unlocked": False,
+    "google": [],
+    "metadata": {},
+}
+
 
 class Accounts(metaclass=Singleton):
     """Class to manage accounts (this is an API endpoint)
@@ -55,18 +69,18 @@ class Accounts(metaclass=Singleton):
 
     def _get_accounts(self):
         if not os.path.exists(self.path):
-            return {}
+            return {"<index>": INDEX_ACCOUNT}
         with open(self.path, "r") as f:
             return json.load(f)
 
     def _set_accounts(self, accounts: dict):
+        if "<index>" not in accounts:
+            accounts["<index>"] = INDEX_ACCOUNT
         with open(self.path, "w") as f:
             json.dump(accounts, f)
 
-    def _add_valid_token(self, username: str) -> str:
+    def _add_valid_token(self, username: str, token: str = None) -> str:
         """Add a valid token to the account"""
-        # Generate a token
-        token = str(uuid.uuid4())
 
         # Get the current tokens
         if os.path.exists(self.auth_file):
@@ -76,7 +90,9 @@ class Accounts(metaclass=Singleton):
             tokens = {}
 
         # Check if the user already has a token from the same ip
-        for t in tokens:
+        for t in (
+            tokens if token is None else []
+        ):  # If the token has been provided, don't check for existing token
             if (
                 tokens[t]["username"] == username
                 and tokens[t]["ip"] == request.remote_addr
@@ -86,6 +102,10 @@ class Accounts(metaclass=Singleton):
                     int(time.time()) + self.config.token_expiration
                 )
                 return t
+
+        if token is None:
+            # Generate a token
+            token = str(uuid.uuid4())
 
         # Add the new token
         tokens[token] = {
@@ -145,6 +165,8 @@ class Accounts(metaclass=Singleton):
             tokens = json.load(f)
         if token in tokens:
             del tokens[token]
+        else:
+            print('Token "{}" not found'.format(token))
         with open(self.auth_file, "w") as f:
             json.dump(tokens, f)
 
@@ -204,6 +226,17 @@ def login():
     return {"message": "OK", "token": token}, 200
 
 
+@bp.route("/logout", methods=["POST"])
+def logout():
+    """Logout from the server"""
+    self = Accounts()
+    token = request.headers.get("Token")
+    if not token:
+        return {"message": "Missing token"}, 400
+    self._revoke_token(token)
+    return {"message": "OK"}, 200
+
+
 @bp.route("/create", methods=["PUT"])
 def create():
     """Create an account on the server"""
@@ -227,8 +260,8 @@ def create():
 
     if username in accounts:
         return {"message": "Account already exists"}, 204
-    if username == "admin":
-        return {"message": "Username 'admin' is reserved"}, 403
+    if username in ("admin", "system indexer"):
+        return {"message": "This username is reserved"}, 403
 
     # Encrypt password using the server's key
     f = fernet.Fernet(self.config.password_key.encode("utf-8"))
@@ -251,15 +284,27 @@ def create():
     return {"message": "OK"}, 201
 
 
-@bp.route("/get-name/<string:username>", methods=["GET"])
+@bp.route("/get-user/<string:username>", methods=["GET"])
 def get_name(username: str):
     """Get the full name of a user"""
     self = Accounts()
     accounts = self._get_accounts()
     username = username.lower()
+
+    AVAILABLE_INFOS = [
+        "username",
+        "fullname",
+        "user_id",
+        "created",
+    ]
+
     if username not in accounts:
         return {"message": "Account does not exist"}, 404
-    return {"message": "OK", "fullname": accounts[username]["fullname"]}, 200
+
+    return {
+        "message": "OK",
+        "user": {k: accounts[username][k] for k in AVAILABLE_INFOS},
+    }, 200
 
 
 @bp.route("/test")
@@ -274,3 +319,41 @@ def test_logged_in():
 def test_admin():
     """Test if the user is an admin"""
     return {"message": "OK"}, 200
+
+
+@admin.route("/switch-index", methods=["PATCH"])
+@require_admin
+def switch_index():
+    """Make the current auth token point to the <index> account"""
+    self = Accounts()
+    current_token = request.headers.get("Token")
+    current_user = self._check_token(current_token)
+
+    self._revoke_token(current_token)
+    self._add_valid_token(username="<index>", token=current_token)
+
+    return {"message": "OK", "username": current_user}, 200
+
+
+@bp.route("/get-users", methods=["GET"])
+@require_login
+def get_users():
+    """Get a list of users"""
+    self = Accounts()
+    accounts = self._get_accounts()
+
+    AVAILABLE_INFOS = [
+        "username",
+        "fullname",
+        "user_id",
+        "created",
+    ]
+
+    users = []
+    for username in accounts:
+        user = {}
+        for info in AVAILABLE_INFOS:
+            user[info] = accounts[username][info]
+        users.append(user)
+
+    return {"message": "OK", "users": users}, 200
