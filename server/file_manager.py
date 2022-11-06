@@ -75,7 +75,7 @@ class FileManager(metaclass=Singleton):
 
     def update_order(self):
         self.ordered_files = sorted(
-            self.index, key=lambda f: self.index[f]["date"], reverse=True
+            list(self.index.keys()), key=lambda f: self.index[f]["date"], reverse=True
         )
 
     def save_index(self):
@@ -170,6 +170,8 @@ class FileManager(metaclass=Singleton):
             case (".3gp"):
                 info["type"] = "video"
                 info["format"] = "3gp"
+            case (".mp"):  # Google Pixel's Motion Photos
+                return {}, None
             case _:
                 print("Unsupported file type :", rel_path)
                 unsupported = True
@@ -219,6 +221,8 @@ class FileManager(metaclass=Singleton):
                 if use_name:
                     f_id = path_id.get(path, f_id)  # Change f_id if available
                     f_info["id"] = f_id
+                if f_id is None:
+                    continue
                 self.index[f_id] = f_info
                 log.debug(f"Indexed {file}")
 
@@ -243,9 +247,13 @@ class FileManager(metaclass=Singleton):
             return True
 
         # Check if the user is an admin
-        return Accounts()._get_accounts()[user]["admin"]
+        return Accounts().get_username(user)["admin"]
 
-    def get_user_files(self, username):
+    def get_user_files(self, user: str):
+
+        return [f_id for f_id, file in self.index.items() if file["owner"] == user]
+
+    def get_allowed_files(self, username):
         return [f for f in self.ordered_files if self.is_allowed(f, username)]
 
 
@@ -410,7 +418,9 @@ def get_file_list_from(last_id, count):
 
     return [
         {k: fm.index[f_id][k] for k in SHARED_KEYS}
-        for f_id in user_files[last_index + 1 : last_index + count]
+        for f_id in user_files[
+            last_index if last_id == "null" else last_index + 1 : last_index + count
+        ]
         if fm.index[f_id]["owner"] == user["username"]
     ]
 
@@ -616,6 +626,42 @@ def delete_file(f_id: str):
     )
 
     del fm.index[f_id]
+    fm.save_index()
+
+    return {"message": "OK"}, 200
+
+
+@bp.route("/set-owner", methods=["PATCH"])
+@require_login
+def set_owner():
+    fm = FileManager()
+    account = Accounts()
+
+    user = account.get_user()
+    data = request.json
+
+    owner = data["owner"]
+    files = data["files"]
+
+    for f_id in files:
+        # Check all the requirements (file exists, user exists, user is admin or owner of the file)
+        if f_id not in fm.index:
+            return {"message": "File not found"}, 404
+        if not fm.is_allowed(f_id, user["username"]):
+            return {"message": "You are not allowed to do that"}, 403
+
+    if owner not in account._get_accounts():
+        return {"message": "User not found"}, 404
+
+    for f_id in files:
+        # Set the new owner
+        fm.index[f_id]["owner"] = owner
+
+        # Prevent the owner from being removed from the allowed list
+        if owner not in fm.index[f_id]["rights"] and user["username"] != "<index>":
+            fm.index[f_id]["rights"].append(user["username"])
+
+    # Save the index
     fm.save_index()
 
     return {"message": "OK"}, 200
