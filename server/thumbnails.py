@@ -195,6 +195,10 @@ def get_file_color(path, type):
         _, frame = cap.read()
         frame.resize((1, 1))
         color = frame[0][0]
+        if color is None:
+            return "#000000"
+        if color < 256:
+            color = color + color * 256 + color * 256 * 256  # Convert grayscale to RGB
         cap.release()
         return f"#{color:06x}"
     else:
