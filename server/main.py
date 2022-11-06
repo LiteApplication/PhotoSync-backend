@@ -1,7 +1,7 @@
 #!/usr/bin/python3.10
 import logging
 
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, redirect
 from flask_restful import Api
 from flask_cors import CORS
 
@@ -61,11 +61,16 @@ def main(config_file: str | None = None, run: bool = True):
     app.register_blueprint(file_manager.bp)
     app.register_blueprint(file_manager.fileio)
     app.register_blueprint(thumbnails.bp)
+    app.add_url_rule("/", "index", index_html)
     app.add_url_rule("/<path:path>", "static_web", static_web)
 
     if run:
         print(config.ssl)
         app.run(config.address, config.port, ssl_context=context, threaded=True)
+
+
+def index_html():
+    return redirect("/index.html")
 
 
 def static_web(path):
