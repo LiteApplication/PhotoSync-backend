@@ -29,6 +29,20 @@ INDEX_ACCOUNT = {
     "metadata": {},
 }
 
+DEFAULT_ACCOUNT = {
+    "username": "",
+    "fullname": "",
+    "password": "",
+    "encrypted": "",
+    "user_id": "",
+    "created": 0,
+    "last_login": 0,
+    "admin": False,
+    "unlocked": False,
+    "google": [],
+    "metadata": {},
+}
+
 
 class Accounts(metaclass=Singleton):
     """Class to manage accounts (this is an API endpoint)
@@ -66,18 +80,40 @@ class Accounts(metaclass=Singleton):
         self.config = config
         self.path = config.accounts
         self.auth_file = config.authorization_file
+        self._cache = {}
+        self._update_accounts()
 
     def _get_accounts(self):
         if not os.path.exists(self.path):
             return {"<index>": INDEX_ACCOUNT}
+
         with open(self.path, "r") as f:
-            return json.load(f)
+            self._cache = json.load(f)
+            return self._cache
 
     def _set_accounts(self, accounts: dict):
         if "<index>" not in accounts:
             accounts["<index>"] = INDEX_ACCOUNT
+        self._cache = accounts
         with open(self.path, "w") as f:
             json.dump(accounts, f)
+
+    def _update_accounts(self):
+        """Update the accounts file"""
+        accounts = self._get_accounts()
+
+        # Check if the index account is present
+        if "<index>" not in accounts:
+            accounts["<index>"] = INDEX_ACCOUNT
+
+        # Check if every account has all the fields
+        for username in accounts:
+            for field in DEFAULT_ACCOUNT:
+                if field not in accounts[username]:
+                    accounts[username][field] = DEFAULT_ACCOUNT[field]
+
+        # Save the accounts
+        self._set_accounts(accounts)
 
     def _add_valid_token(self, username: str, token: str = None) -> str:
         """Add a valid token to the account"""
@@ -178,18 +214,25 @@ class Accounts(metaclass=Singleton):
         username = self._check_token(token)
         if not username:
             return None
-        accounts = self._get_accounts()
-        if username not in accounts:
+        return self.get_username(username)
 
-            return None
-        return accounts[username]
+    def get_username(self, username: str) -> dict:
+        if username not in self._cache:
+            self._get_accounts()
+
+        return self._cache.get(username, None)
+
+    def set_account(self, username: str, account: dict):
+        """Set an account"""
+        accounts = self._get_accounts()
+        accounts[username] = account
+        self._set_accounts(accounts)
 
 
 @bp.route("/login", methods=["POST"])
 def login():
     """Login to the server"""
     self = Accounts()
-    accounts = self._get_accounts()
     data = request.get_json()
 
     # Check if the required parameters are present
@@ -201,24 +244,24 @@ def login():
 
     username = username.lower()
 
-    if username not in accounts:
+    userdata = self.get_username(username)
+
+    if userdata is None:
         return {"message": "Account does not exist"}, 404
 
     # Check if the password is correct
     try:
         if (
-            not passlib.hash.sha512_crypt.verify(
-                password, accounts[username]["password"]
-            )
-            and not accounts[username]["unlocked"]
+            not passlib.hash.sha512_crypt.verify(password, userdata["password"])
+            and not userdata["unlocked"]
         ):
             return {"message": "Wrong password"}, 401
     except ValueError:
         return {"message": "Authentication failed"}, 401
 
     # Update last login
-    accounts[username]["last_login"] = int(time.time())
-    self._set_accounts(accounts)
+    userdata["last_login"] = int(time.time())
+    self.set_account(username, userdata)
 
     # Add a valid token
     token = self._add_valid_token(username)
@@ -243,7 +286,6 @@ def create():
 
     self = Accounts()
 
-    accounts = self._get_accounts()
     data = request.get_json()
 
     # Check if the required parameters are present
@@ -258,7 +300,7 @@ def create():
     if not re.match("^[a-z0-9]*$", username):
         return {"message": "Invalid username"}, 400
 
-    if username in accounts:
+    if self.get_username(username) is not None:
         return {"message": "Account already exists"}, 204
     if username in ("admin", "system indexer"):
         return {"message": "This username is reserved"}, 403
@@ -267,20 +309,22 @@ def create():
     f = fernet.Fernet(self.config.password_key.encode("utf-8"))
     encrypted = f.encrypt(password.encode("utf-8")).decode("utf-8")
 
-    accounts[username] = {
-        "username": username,
-        "fullname": data["fullname"],
-        "password": passlib.hash.sha512_crypt.hash(password),
-        "encrypted": encrypted,
-        "user_id": str(uuid.uuid4()),
-        "created": int(time.time()),
-        "last_login": int(time.time()),
-        "admin": False,
-        "unlocked": False,
-        "google": [],  # Future use
-        "metadata": {},  # Future use
-    }
-    self._set_accounts(accounts)
+    self.set_account(
+        username,
+        {
+            "username": username,
+            "fullname": data["fullname"],
+            "password": passlib.hash.sha512_crypt.hash(password),
+            "encrypted": encrypted,
+            "user_id": str(uuid.uuid4()),
+            "created": int(time.time()),
+            "last_login": int(time.time()),
+            "admin": False,
+            "unlocked": False,
+            "google": [],  # Future use
+            "metadata": {},  # Future use
+        },
+    )
     return {"message": "OK"}, 201
 
 
@@ -288,7 +332,6 @@ def create():
 def get_name(username: str):
     """Get the full name of a user"""
     self = Accounts()
-    accounts = self._get_accounts()
     username = username.lower()
 
     AVAILABLE_INFOS = [
@@ -298,12 +341,13 @@ def get_name(username: str):
         "created",
     ]
 
-    if username not in accounts:
+    userdata = self.get_username(username)
+    if userdata is None:
         return {"message": "Account does not exist"}, 404
 
     return {
         "message": "OK",
-        "user": {k: accounts[username][k] for k in AVAILABLE_INFOS},
+        "user": {k: userdata[k] for k in AVAILABLE_INFOS},
     }, 200
 
 
