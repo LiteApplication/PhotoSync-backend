@@ -6,12 +6,14 @@ from PIL import Image
 
 
 class Singleton(type):
-    _instance = {}
+    _instances = {}
 
     def __call__(cls, *args, **kwargs):
-        if cls not in cls._instance:
-            cls._instance[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instance[cls]
+        instance = cls._instances.get(cls, None)
+        if instance is None:
+            instance = super().__call__(*args, **kwargs)
+            cls._instances[cls] = instance
+        return instance
 
 
 def blueprint_api(blueprint: Blueprint, *args, **kwargs):

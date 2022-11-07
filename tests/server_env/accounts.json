@@ -1,0 +1,41 @@
+{
+    "<index>": {
+        "username": "<index>",
+        "fullname": "System Indexer",
+        "password": "",
+        "encrypted": "",
+        "user_id": "<index>",
+        "created": 0,
+        "last_login": 0,
+        "admin": true,
+        "unlocked": false,
+        "google": [],
+        "metadata": {}
+    },
+    "test": {
+        "username": "test",
+        "fullname": "Test Account",
+        "password": "$6$rounds=656000$k5gNe0VkjDw/ereD$al5ohllGAYSVX7UeL7nmzsP04kH3iY8Qk42GXbTdqG3thrUw5ewQjtfz86KmvvdJsMJvoecyMQSzaol71GKPc0",
+        "encrypted": "gAAAAABjaXs5kXKJTXX2TOmkmfk8hheCoy2pbtshSO4K4SVO0zcmLA4HrPyZQ482xEePJrKgXzBufr-GkUC22Jn9gAn_IFUHZg==",
+        "user_id": "h26acb90-a2f8-4c6f-91b3-1234hfcf4f",
+        "created": 1667857209,
+        "last_login": 1667857209,
+        "admin": false,
+        "unlocked": false,
+        "google": [],
+        "metadata": {}
+    },
+    "adminact": {
+        "username": "adminact",
+        "fullname": "Admin Account",
+        "password": "$6$rounds=656000$9QX1Ks3UlLNRR1Xe$sFJflGMJiIW0ba0cLKoDPzxKyE1VARTDJ7KKirbq6Yu6.R7P3L5PNAyDAcAqQJnRzropOHAv/L4/86EDEoRW81",
+        "encrypted": "gAAAAABjaYOjuqN0ojgBQlJQqtqkRyUcDCLvNAWegDfgkflwkokHXJkCY9ziYcQZ7PEmmTO9OPrP-N6qOWLYTBgFJl6sq-fw6Q==",
+        "user_id": "d4493f58-4d22-4c34-a64d-f4f09093a7e7",
+        "created": 1667859364,
+        "last_login": 1667859364,
+        "admin": true,
+        "unlocked": false,
+        "google": [],
+        "metadata": {}
+    }
+}

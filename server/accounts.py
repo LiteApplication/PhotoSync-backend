@@ -297,12 +297,12 @@ def create():
 
     # Check if the username contains only letters and numbers
     username = username.lower()
-    if not re.match("^[a-z0-9]*$", username):
+    if not re.match("^[a-z0-9]+$", username):
         return {"message": "Invalid username"}, 400
 
     if self.get_username(username) is not None:
         return {"message": "Account already exists"}, 204
-    if username in ("admin", "system indexer"):
+    if username in ("admin", "<index>"):
         return {"message": "This username is reserved"}, 403
 
     # Encrypt password using the server's key

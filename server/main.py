@@ -1,14 +1,13 @@
 #!/usr/bin/python3.10
 import logging
-
-from flask import Flask, send_from_directory, redirect
-from flask_restful import Api
-from flask_cors import CORS
+import os
 
 import accounts
 import file_manager
 import thumbnails
 from configuration import ConfigFile
+from flask import Flask, redirect, send_from_directory
+from flask_cors import CORS
 
 app = None
 
@@ -38,17 +37,55 @@ def main(config_file: str | None = None, run: bool = True):
     setup_logger()
 
     if config_file is None:
-        config_file = "config.conf"
+        config_file = os.environ.get("PHOTOSYNC_CONFIG", default="/etc/photosync.conf")
+
     config = ConfigFile(config_file)
 
-    fm = file_manager.FileManager(config)
-    account_manager = accounts.Accounts(config)
+    if os.getenv("PHOTOSYNC_TESTING", default=False):
+        import shutil
+
+        # Restore the default configuration
+        source_path = os.getenv("PHOTOSYNC_TESTING")
+
+        def restore(path):
+            if not os.path.exists(path):
+                return
+            if os.path.isdir(path):
+                os.system(f"rm -rf {path}")
+                shutil.copytree(os.path.join(source_path, os.path.basename(path)), path)
+            else:
+                shutil.copy(os.path.join(source_path, os.path.basename(path)), path)
+
+        def reset_all():
+            from utils import Singleton
+
+            print("Server reset (testing) ...")
+
+            for file in [
+                config.index,
+                config.storage,
+                config.thumbnails_folder,
+                config.temp_folder,
+                config.trash_folder,
+                config.accounts,
+                config.authorization_file,
+            ]:
+                restore(file)
+            Singleton._instances[file_manager.FileManager] = None
+            Singleton._instances[accounts.Accounts] = None
+
+            fm = file_manager.FileManager(config)
+            account_manager = accounts.Accounts(config)
+            return "ok", 200
+
+    else:
+        fm = file_manager.FileManager(config)
+        account_manager = accounts.Accounts(config)
 
     app = Flask(__name__)
 
     # Allow cross origin requests
     CORS(app, resources={r"*": {"origins": "*"}}, max_age=config.cache_time)
-    api = Api(app, "/api")
 
     if config.ssl:
         context = (config.ssl_cert, config.ssl_key)
@@ -62,6 +99,10 @@ def main(config_file: str | None = None, run: bool = True):
     app.register_blueprint(file_manager.fileio)
     app.register_blueprint(thumbnails.bp)
     app.add_url_rule("/", "index", index_html)
+
+    if os.getenv("PHOTOSYNC_TESTING", default=False):
+        app.add_url_rule("/test-reset", "reset", reset_all)
+
     app.add_url_rule("/<path:path>", "static_web", static_web)
 
     if run:
@@ -80,11 +121,13 @@ def static_web(path):
 if __name__ == "__main__":
     import argparse
 
+    default_config = os.environ.get("PHOTOSYNC_CONFIG", default="/etc/photosync.conf")
+
     parser = argparse.ArgumentParser(
         description="Photo synchronizer with a client app, this will store photos on the server leaving space on your phone."
     )
     parser.add_argument(
-        "--config", "-c", required=False, default="/etc/photosync.conf", type=str
+        "--config", "-c", required=False, default=default_config, type=str
     )
     args = parser.parse_args()
 
