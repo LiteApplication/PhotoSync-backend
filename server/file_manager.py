@@ -250,8 +250,9 @@ class FileManager(metaclass=Singleton):
         return Accounts().get_username(user)["admin"]
 
     def get_user_files(self, user: str):
-
-        return [f_id for f_id, file in self.index.items() if file["owner"] == user]
+        return [
+            f_id for f_id in self.ordered_files if self.index[f_id]["owner"] == user
+        ]
 
     def get_allowed_files(self, username):
         return [f for f in self.ordered_files if self.is_allowed(f, username)]
@@ -529,7 +530,6 @@ def download_file(f_id: str):
         return {"message": "File not found"}, 404
 
     if not fm.is_allowed(f_id, user["username"]):
-        print(fm.index[f_id]["owner"], user["username"])
         return {"message": "You are not allowed to do that"}, 403
 
     return send_file(
