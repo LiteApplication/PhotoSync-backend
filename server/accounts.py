@@ -9,8 +9,8 @@ from cryptography import fernet
 from flask import Blueprint, request
 from flask_restful import Resource
 
-from configuration import ConfigFile
-from utils import Singleton, require_admin, require_login
+from .configuration import ConfigFile
+from .utils import Singleton, require_admin, require_login
 
 bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
 admin = Blueprint("admin", __name__, url_prefix="/api/admin")

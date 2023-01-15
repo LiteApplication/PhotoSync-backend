@@ -3,13 +3,13 @@ import zipfile
 from time import time
 
 import cv2
-from PIL import Image
 from flask import Blueprint, request, send_file
+from PIL import Image
 
-from accounts import Accounts
-from configuration import ConfigFile
-from file_manager import FileManager
-from utils import require_login
+from .accounts import Accounts
+from .configuration import ConfigFile
+from .file_manager import FileManager
+from .utils import require_login
 
 bp = Blueprint("thumbnails", __name__, url_prefix="/api/timg")
 
@@ -197,9 +197,11 @@ def get_file_color(path, type):
         color = frame[0][0]
         if color is None:
             return "#000000"
+        print("color:", color, end=" ")
         if color < 256:
             color = color + color * 256 + color * 256 * 256  # Convert grayscale to RGB
         cap.release()
+        print(color, f"#{color:06x}")
         return f"#{color:06x}"
     else:
         return "#000000"

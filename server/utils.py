@@ -43,7 +43,7 @@ def require_login(func):
     def wrapper(*args, **kwargs):
         from flask import request
 
-        from accounts import Accounts
+        from .accounts import Accounts
 
         if not Accounts()._check_token(request.headers.get("Token")):
             return {"message": "Unauthorized"}, 401
@@ -59,7 +59,7 @@ def require_login(func):
 
 def require_admin(func):
     def wrapper(*args, **kwargs):
-        from accounts import Accounts
+        from .accounts import Accounts
 
         if not Accounts()._check_token(request.headers.get("Token")):
             return {"message": "Unauthorized"}, 401

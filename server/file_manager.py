@@ -9,9 +9,9 @@ from timeit import default_timer as timer
 from flask import Blueprint, request, send_file
 from werkzeug.utils import secure_filename
 
-from accounts import Accounts
-from configuration import ConfigFile
-from utils import Singleton, get_exif_date, require_admin, require_login
+from .accounts import Accounts
+from .configuration import ConfigFile
+from .utils import Singleton, get_exif_date, require_admin, require_login
 
 log = logging.getLogger("file_manager")
 
@@ -626,6 +626,7 @@ def delete_file(f_id: str):
     )
 
     del fm.index[f_id]
+    fm.ordered_files.remove(f_id)
     fm.save_index()
 
     return {"message": "OK"}, 200

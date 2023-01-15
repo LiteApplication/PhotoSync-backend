@@ -12,6 +12,7 @@ cryptography = "*"
 flask-cors = "*"
 opencv-python = "*"
 mutagen = "*"
+waitress = "*"
 
 [dev-packages]
 black = "*"

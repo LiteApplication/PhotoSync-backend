@@ -5,7 +5,7 @@ import re
 
 from cryptography import fernet
 
-from utils import Singleton
+from .utils import Singleton
 
 log = logging.getLogger("configuration")
 

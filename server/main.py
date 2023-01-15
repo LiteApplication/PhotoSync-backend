@@ -2,12 +2,12 @@
 import logging
 import os
 
-import accounts
-import file_manager
-import thumbnails
-from configuration import ConfigFile
 from flask import Flask, redirect, send_from_directory
 from flask_cors import CORS
+
+from .configuration import ConfigFile
+
+from . import accounts, file_manager, thumbnails
 
 app = None
 
@@ -106,7 +106,7 @@ def main(config_file: str | None = None, run: bool = True):
     app.add_url_rule("/<path:path>", "static_web", static_web)
 
     if run:
-        print(config.ssl)
+        print("SSL:", config.ssl)
         app.run(config.address, config.port, ssl_context=context, threaded=True)
 
 

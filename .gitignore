@@ -3,3 +3,6 @@ data/
 postman/
 
 **/__pycache__/**
+photosync.key
+photosync.csr
+photosync.crt

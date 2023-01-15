@@ -1,0 +1,28 @@
+    [req]
+    distinguished_name = req_distinguished_name
+    req_extensions = v3_req
+
+    [req_distinguished_name]
+    countryName = FR
+    countryName_default = FR
+    stateOrProvinceName = Île-de-France
+    stateOrProvinceName_default = Île-de-France
+    localityName = Paris
+    localityName_default = Paris
+    organizationalUnitName = PhotoSync
+    organizationalUnitName_default = PhotoSync
+    commonName = a.home
+    commonName_max = 64
+
+    [ v3_req ]
+    # Extensions to add to a certificate request
+    basicConstraints = CA:FALSE
+    keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+    subjectAltName = @alt_names
+
+    [alt_names]
+    DNS.1 = localhost
+    DNS.2 = a.home
+    DNS.3 = a
+    DNS.4 = 127.0.0.1
+    DNS.5 = homepr.duckdns.org
