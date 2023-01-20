@@ -10,7 +10,7 @@ from flask import Blueprint, request
 from flask_restful import Resource
 
 from .configuration import ConfigFile
-from .utils import Singleton, require_admin, require_login
+from .utils import Singleton, require_admin, require_login, get_request_token
 
 bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
 admin = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -177,6 +177,9 @@ class Accounts(metaclass=Singleton):
 
     def _check_token(self, token: str) -> bool:
         """Check if a token is valid and return the username"""
+        if token is None:
+            return False
+
         if not os.path.exists(self.auth_file):
             # No token file, no valid token
             return False
@@ -208,9 +211,10 @@ class Accounts(metaclass=Singleton):
 
     def get_user(self) -> dict:
         """Get the user from the token"""
-        token = request.headers.get("Token")
+        token = get_request_token()
         if not token:
             return None
+
         username = self._check_token(token)
         if not username:
             return None
@@ -273,7 +277,7 @@ def login():
 def logout():
     """Logout from the server"""
     self = Accounts()
-    token = request.headers.get("Token")
+    token = get_request_token()
     if not token:
         return {"message": "Missing token"}, 400
     self._revoke_token(token)
@@ -290,6 +294,7 @@ def create():
 
     # Check if the required parameters are present
     if "username" not in data or "password" not in data or "fullname" not in data:
+        print(data)
         return {"message": "Missing parameters"}, 400
 
     username = data["username"]
@@ -370,7 +375,7 @@ def test_admin():
 def switch_index():
     """Make the current auth token point to the <index> account"""
     self = Accounts()
-    current_token = request.headers.get("Token")
+    current_token = get_request_token()
     current_user = self._check_token(current_token)
 
     self._revoke_token(current_token)

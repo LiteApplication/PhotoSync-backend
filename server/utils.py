@@ -16,6 +16,18 @@ class Singleton(type):
         return instance
 
 
+def get_request_token():
+    request_token = request.headers.get("Token")
+    if request_token is None:
+        # Check if the token is in the content
+        try:
+            request_token = request.json.get("token")
+        except:
+            pass
+    print(request_token)
+    return request_token
+
+
 def blueprint_api(blueprint: Blueprint, *args, **kwargs):
     def decorator(func):
         def wrapper(*args, **kwargs):
@@ -45,7 +57,7 @@ def require_login(func):
 
         from .accounts import Accounts
 
-        if not Accounts()._check_token(request.headers.get("Token")):
+        if not Accounts()._check_token(get_request_token()):
             return {"message": "Unauthorized"}, 401
         return func(*args, **kwargs)
 
@@ -61,7 +73,7 @@ def require_admin(func):
     def wrapper(*args, **kwargs):
         from .accounts import Accounts
 
-        if not Accounts()._check_token(request.headers.get("Token")):
+        if not Accounts()._check_token(get_request_token()):
             return {"message": "Unauthorized"}, 401
         if not Accounts().get_user().get("admin"):
             return {"message": "Unauthorized"}, 401
