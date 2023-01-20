@@ -8,5 +8,5 @@ export PHOTOSYNC_CONFIG=config.conf
 if [ -z "$VIRTUAL_ENV" ]; then
     python -m server.main --config $PHOTOSYNC_CONFIG
 else
-    pipenv run flask run --debugger -h 0.0.0.0 -p 8080
+    pipenv run flask run --debugger -h 0.0.0.0 -p 2701
 fi
