@@ -6,3 +6,4 @@ postman/
 photosync.key
 photosync.csr
 photosync.crt
+.vscode
