@@ -43,6 +43,13 @@ DEFAULT_ACCOUNT = {
     "metadata": {},
 }
 
+AVAILABLE_INFOS = [
+    "username",
+    "fullname",
+    "user_id",
+    "created",
+]
+
 
 class Accounts(metaclass=Singleton):
     """Class to manage accounts (this is an API endpoint)
@@ -302,13 +309,14 @@ def create():
 
     # Check if the username contains only letters and numbers
     username = username.lower()
+    if username in ("admin", "<index>"):
+        return {"message": "This username is reserved"}, 403
+
     if not re.match("^[a-z0-9]+$", username):
         return {"message": "Invalid username"}, 400
 
     if self.get_username(username) is not None:
-        return {"message": "Account already exists"}, 204
-    if username in ("admin", "<index>"):
-        return {"message": "This username is reserved"}, 403
+        return {"message": "Account already exists"}, 409
 
     # Encrypt password using the server's key
     f = fernet.Fernet(self.config.password_key.encode("utf-8"))
@@ -330,7 +338,11 @@ def create():
             "metadata": {},  # Future use
         },
     )
-    return {"message": "OK"}, 201
+
+    # Add a valid token
+    token = self._add_valid_token(username)
+
+    return {"message": "OK", "token": token}, 200
 
 
 @bp.route("/get-user/<string:username>", methods=["GET"])
@@ -338,13 +350,6 @@ def get_name(username: str):
     """Get the full name of a user"""
     self = Accounts()
     username = username.lower()
-
-    AVAILABLE_INFOS = [
-        "username",
-        "fullname",
-        "user_id",
-        "created",
-    ]
 
     userdata = self.get_username(username)
     if userdata is None:
@@ -360,7 +365,10 @@ def get_name(username: str):
 @require_login
 def test_logged_in():
     """Test if the user is logged in"""
-    return {"message": "OK"}, 200
+    user = Accounts().get_user()
+    response = {k: user[k] for k in AVAILABLE_INFOS}
+    response["message"] = "OK"
+    return response, 200
 
 
 @admin.route("/test")
@@ -390,13 +398,6 @@ def get_users():
     """Get a list of users"""
     self = Accounts()
     accounts = self._get_accounts()
-
-    AVAILABLE_INFOS = [
-        "username",
-        "fullname",
-        "user_id",
-        "created",
-    ]
 
     users = []
     for username in accounts:
