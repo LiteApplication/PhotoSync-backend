@@ -24,7 +24,6 @@ def get_request_token():
             request_token = request.json.get("token")
         except:
             pass
-    print(request_token)
     return request_token
 
 
