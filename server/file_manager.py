@@ -20,14 +20,14 @@ fileio = Blueprint("fileio", __name__, url_prefix="/api/fileio")
 
 
 SHARED_KEYS = [
-    "color",
-    "path",
+    "id",
     "date",
-    "extension",
+    "path",
     "type",
+    "extension",
     "format",
     "owner",
-    "id",
+    "color",
     "hash",
 ]
 
@@ -60,6 +60,7 @@ class FileManager(metaclass=Singleton):
 
     def load_index(self):
         if not os.path.exists(self.config.index):
+            os.makedirs(os.path.dirname(self.config.index), exist_ok=True)
             self.index = {}
             with open(self.config.index, "w") as f:
                 f.write("{}")
@@ -363,13 +364,20 @@ def get_by_attribute(attribute, value):
             return {"message": "File not found"}, 404
         if not fm.is_allowed(value, user["username"]):
             return {"message": "You are not allowed to do that"}, 403
-        return {k: fm.index[value][k] for k in SHARED_KEYS}
+        return {
+            "message": "OK",
+            "files": [{k: fm.index[value][k] for k in SHARED_KEYS}],
+        }
 
-    return [
-        {k: fm.index[f_id][k] for k in SHARED_KEYS}
-        for f_id in fm.index
-        if fm.index[f_id][attribute] == value and fm.is_allowed(f_id, user["username"])
-    ]
+    return {
+        "message": "OK",
+        "files": [
+            {k: fm.index[f_id][k] for k in SHARED_KEYS}
+            for f_id in fm.index
+            if fm.index[f_id][attribute] == value
+            and fm.is_allowed(f_id, user["username"])
+        ],
+    }
 
 
 @bp.route("/get-all")
@@ -377,7 +385,7 @@ def get_by_attribute(attribute, value):
 def get_all():
     # Return all files in the index
     fm = FileManager()
-    return fm.get_all_infos()
+    return {"message": "OK", "files": fm.get_all_infos()}
 
 
 @bp.route("/file-list")
@@ -390,11 +398,14 @@ def get_file_list():
 
     user = account.get_user()
 
-    return [
-        {k: fm.index[f_id][k] for k in SHARED_KEYS}
-        for f_id in fm.ordered_files
-        if fm.index[f_id]["owner"] == user["username"]
-    ]
+    return {
+        "message": "OK",
+        "files": [
+            {k: fm.index[f_id][k] for k in SHARED_KEYS}
+            for f_id in fm.ordered_files
+            if fm.index[f_id]["owner"] == user["username"]
+        ],
+    }
 
 
 @bp.route("/file-list/id/<string:last_id>/<int:count>")
@@ -408,7 +419,7 @@ def get_file_list_from(last_id, count):
     user = account.get_user()
     user_files = fm.get_user_files(user["username"])
 
-    if last_id == "null":
+    if last_id in ("null", "", "None"):
         last_index = 0
     elif last_id not in fm.index:
         return {"message": "File not found"}, 404
@@ -417,13 +428,16 @@ def get_file_list_from(last_id, count):
 
     count = min(count, len(user_files) + last_index)
 
-    return [
-        {k: fm.index[f_id][k] for k in SHARED_KEYS}
-        for f_id in user_files[
-            last_index if last_id == "null" else last_index + 1 : last_index + count
-        ]
-        if fm.index[f_id]["owner"] == user["username"]
-    ]
+    return {
+        "message": "OK",
+        "files": [
+            {k: fm.index[f_id][k] for k in SHARED_KEYS}
+            for f_id in user_files[
+                last_index if last_id == "null" else last_index + 1 : last_index + count
+            ]
+            if fm.index[f_id]["owner"] == user["username"]
+        ],
+    }
 
 
 @bp.route("/file-list/before/<int:timestamp>/<int:count>")
@@ -446,11 +460,14 @@ def get_file_list_after(timestamp, count):
 
     count = min(count, len(user_files) + last_index)
 
-    return [
-        {k: fm.index[f_id][k] for k in SHARED_KEYS}
-        for f_id in user_files[last_index + 1 : last_index + count]
-        if fm.index[f_id]["owner"] == user["username"]
-    ]
+    return {
+        "message": "OK",
+        "files": [
+            {k: fm.index[f_id][k] for k in SHARED_KEYS}
+            for f_id in user_files[last_index + 1 : last_index + count]
+            if fm.index[f_id]["owner"] == user["username"]
+        ],
+    }
 
 
 @bp.route("/file-list/between/<int:timestamp1>/<int:timestamp2>/<int:count>")
@@ -473,12 +490,15 @@ def get_file_list_between(timestamp1, timestamp2, count):
 
     count = min(count, len(user_files) + last_index)
 
-    return [
-        {k: fm.index[f_id][k] for k in SHARED_KEYS}
-        for f_id in user_files[last_index + 1 : last_index + count]
-        if fm.index[f_id]["owner"] == user["username"]
-        and fm.index[f_id]["date"] < timestamp2
-    ]
+    return {
+        "message": "OK",
+        "files": [
+            {k: fm.index[f_id][k] for k in SHARED_KEYS}
+            for f_id in user_files[last_index + 1 : last_index + count]
+            if fm.index[f_id]["owner"] == user["username"]
+            and fm.index[f_id]["date"] < timestamp2
+        ],
+    }
 
 
 @bp.route("/reload", methods=["PATCH"])

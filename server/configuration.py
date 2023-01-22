@@ -127,3 +127,9 @@ class ConfigFile(metaclass=Singleton):
             return self.TYPES[name](self.DEFAULT[name])
         else:
             raise AttributeError(f"ConfigFile has no attribute {name}")
+
+    def __setattr__(self, __name: str, __value) -> None:
+        if __name in self.DEFAULT:
+            self.config[__name] = self.TYPES[__name](__value)
+        else:
+            super().__setattr__(__name, __value)

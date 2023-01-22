@@ -2,7 +2,7 @@
 import logging
 import os
 
-from flask import Flask, redirect, send_from_directory
+from flask import Flask, redirect, send_from_directory, request
 from flask_cors import CORS
 
 from .configuration import ConfigFile
@@ -108,6 +108,8 @@ def main(config_file: str | None = None, run: bool = True):
     if run:
         print("SSL:", config.ssl)
         app.run(config.address, config.port, ssl_context=context, threaded=True)
+    else:
+        config.ssl = False
 
 
 def index_html():
@@ -115,6 +117,29 @@ def index_html():
 
 
 def static_web(path):
+    if path == "js/api.js":
+        # Return the api.js file with the correct address
+        # Read the file
+        with open(os.path.join(ConfigFile().web_folder, path), "r") as f:
+            content = f.read()
+
+        # Replace the address with the Origin
+        if request.headers.get("Host", False):
+            api_host = "{}://{}".format(
+                "https" if ConfigFile().ssl else "http", request.headers.get("Host")
+            )
+        else:
+            api_host = "{protocol}://{host}:{port}".format(
+                protocol="https" if ConfigFile().ssl else "http",
+                host=ConfigFile().address
+                if ConfigFile().address != "0.0.0.0"
+                else "localhost",
+                port=ConfigFile().port,
+            )
+
+        content = content.replace("${API_HOST}", api_host)
+        return content, 200, {"Content-Type": "text/javascript"}
+
     return send_from_directory(ConfigFile().web_folder, path)
 
 
