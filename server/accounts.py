@@ -312,8 +312,10 @@ def create():
     if username in ("admin", "<index>"):
         return {"message": "This username is reserved"}, 403
 
-    if not re.match("^[a-z0-9]+$", username):
-        return {"message": "Invalid username"}, 400
+    if not re.match("^[a-z0-9]{3,15}$", username):
+        return {
+            "message": "Invalid username. The username should be between 3 and 15 characters and contain only letters and numbers"
+        }, 400
 
     if self.get_username(username) is not None:
         return {"message": "Account already exists"}, 409
