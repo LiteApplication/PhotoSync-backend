@@ -12,6 +12,7 @@ from werkzeug.utils import secure_filename
 from .accounts import Accounts
 from .configuration import ConfigFile
 from .utils import Singleton, get_exif_date, require_admin, require_login
+from .index_changes import ChangeDB
 
 log = logging.getLogger("file_manager")
 
@@ -338,7 +339,7 @@ def upgrade_index():
         shutil.move(config.index + ".bak", config.index)
 
         print(traceback.format_exc())
-        return traceback.format_exc()
+        return {"message": "Fatal error : \n" + traceback.format_exc()}
 
 
 @bp.route("/get-by/<string:attribute>/<path:value>")
@@ -618,6 +619,7 @@ def upload_file():
         f_info["owner"] = username
         fm.index[f_id] = f_info
         fm.save_index()
+        ChangeDB().add_change(f_info)
         return {"message": "OK", "id": f_id}, 200
     return {"message": "Invalid file"}, 400
 
@@ -640,11 +642,21 @@ def delete_file(f_id: str):
     # Move the file to the trash folder (create a folder for the user)
     if not os.path.exists(os.path.join(trash, user["username"])):
         os.makedirs(os.path.join(trash, user["username"]))
+
+    trash_file = os.path.join(
+        trash, user["username"], os.path.basename(fm.index[f_id]["path"])
+    )
+    if os.path.exists(trash_file):
+        trash_file = os.path.join(
+            trash,
+            user["username"],
+            f_id + "_" + os.path.basename(fm.index[f_id]["path"]),
+        )
     os.rename(
         fm.get_file_path(fm.index[f_id]["path"]),
-        os.path.join(trash, user["username"], os.path.basename(fm.index[f_id]["path"])),
+        trash_file,
     )
-
+    ChangeDB().add_change(fm.index[f_id])
     del fm.index[f_id]
     fm.ordered_files.remove(f_id)
     fm.save_index()
@@ -681,6 +693,8 @@ def set_owner():
         # Prevent the owner from being removed from the allowed list
         if owner not in fm.index[f_id]["rights"] and user["username"] != "<index>":
             fm.index[f_id]["rights"].append(user["username"])
+
+        ChangeDB().add_change(fm.index[f_id])
 
     # Save the index
     fm.save_index()
