@@ -409,6 +409,38 @@ def get_file_list():
     }
 
 
+@bp.route("/page", methods=["POST"])
+@require_login
+def get_file_list_page():
+    # Return all the files owned by the user
+    # in the correct order
+    fm = FileManager()
+    account = Accounts()
+
+    page = request.json["page"]
+    page_size = request.json["page_size"]
+
+    try:
+        # Convert to int
+        page = int(page)
+        page_size = int(page_size)
+    except ValueError:
+        return {"message": "Invalid page number"}, 400
+
+    user = account.get_user()
+    user_files = fm.get_allowed_files(user["username"])  # Already sorted by date
+
+    # Build the list of files
+    result = user_files[page * page_size : (page + 1) * page_size]
+    # Only keep the right properties of the files
+    result = [{k: fm.index[f_id][k] for k in SHARED_KEYS} for f_id in result]
+
+    return {
+        "message": "OK",
+        "files": result,
+    }
+
+
 @bp.route("/file-list/id/<string:last_id>/<int:count>")
 @require_login
 def get_file_list_from(last_id, count):
