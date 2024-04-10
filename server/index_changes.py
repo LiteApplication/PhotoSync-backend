@@ -23,11 +23,15 @@ class ChangeDB(metaclass=Singleton):
     """
 
     def __init__(self) -> None:
-        self.db = sqlite3.connect(ConfigFile().history_database)
+        self.db = sqlite3.connect(
+            ConfigFile().history_database, check_same_thread=False
+        )
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS changes (id INTEGER PRIMARY KEY AUTOINCREMENT, user VARCHAR(16), date INTEGER)"
         )
-        self.db.execute("CREATE TABLE IF NOT EXISTS files (id INTEGER, file CHAR(36))")
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS files (id INTEGER, file VARCHAR(12))"
+        )
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS users (id INTEGER, user VARCHAR(16))"
         )

@@ -35,7 +35,7 @@ def get_thumbnail(f_id: str, size: int):
             return {"message": "Unauthorized"}, 401
 
     # Check if the thumbnail exists
-    thumbnail_path = os.path.join(conf.thumbnails_folder, f_id + f"{size}.png")
+    thumbnail_path = os.path.join(conf.thumbnails_folder, f"{f_id}_{size}x{size}.png")
     if not os.path.exists(thumbnail_path):
         # Create the thumbnail folder if it doesn't exist
         if not os.path.exists(conf.thumbnails_folder):
@@ -97,7 +97,9 @@ def get_multiple_thumbnails(size: int):
             return {"message": f"File not found ({f_id})"}, 404
 
         # Check if the thumbnail exists
-        thumbnail_path = os.path.join(conf.thumbnails_folder, f_id + f"{size}.png")
+        thumbnail_path = os.path.join(
+            conf.thumbnails_folder, f"{f_id}_{size}x{size}.png"
+        )
         if not os.path.exists(thumbnail_path):
             # Create the thumbnail
             if fm.metadata(f_id).get("type") == "image":
@@ -119,7 +121,9 @@ def get_multiple_thumbnails(size: int):
     )
     with zipfile.ZipFile(zip_path, "w") as zipf:
         for f_id in request.json:
-            thumbnail_path = os.path.join(conf.thumbnails_folder, f_id + f"{size}.png")
+            thumbnail_path = os.path.join(
+                conf.thumbnails_folder, f"{f_id}_{size}x{size}.png"
+            )
             zipf.write(thumbnail_path, f_id + ".png")
 
     return send_file(
@@ -151,13 +155,12 @@ def create_thumbnail(source: str, destination: str, size: int | None = None):
         im = im.crop((left, top, right, bottom))
 
         # Resize the image to the thumbnail size
-        im.thumbnail((size, size), Image.ANTIALIAS)
+        im.thumbnail((size, size), Image.ADAPTIVE)
 
         im.save(destination)
 
 
 def create_video_thumbnail(video_path: str, thumbnail_path: str, size: int):
-
     # Open the video
     cap = cv2.VideoCapture(video_path)
 
@@ -197,11 +200,9 @@ def get_file_color(path, type):
         color = frame[0][0]
         if color is None:
             return "#000000"
-        print("color:", color, end=" ")
         if color < 256:
             color = color + color * 256 + color * 256 * 256  # Convert grayscale to RGB
         cap.release()
-        print(color, f"#{color:06x}")
         return f"#{color:06x}"
     else:
         return "#000000"

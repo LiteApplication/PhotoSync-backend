@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import shutil
-import uuid
+import uuid, time
 from timeit import default_timer as timer
 
 from flask import Blueprint, request, send_file
@@ -34,16 +34,7 @@ SHARED_KEYS = [
 
 
 def creation_date(path_to_file):
-    stat = os.stat(path_to_file)
-    try:
-        return int(stat.st_birthtime)
-    except AttributeError:
-        # We're probably on Linux. No easy way to get creation dates here,
-        # so we'll settle for when its content was last modified.
-        return int(stat.st_mtime)
-
-
-# Make FileManager a singleton
+    return os.path.getctime(path_to_file) * 1000
 
 
 class FileManager(metaclass=Singleton):
@@ -76,9 +67,15 @@ class FileManager(metaclass=Singleton):
             print("Loaded index with", len(self.index), "files")
 
     def update_order(self):
-        self.ordered_files = sorted(
-            list(self.index.keys()), key=lambda f: self.index[f]["date"], reverse=True
-        )
+        try:
+            self.ordered_files = sorted(
+                list(self.index.keys()),
+                key=lambda f: self.index[f]["date"],
+                reverse=True,
+            )
+        except:
+            self.ordered_files = list(self.index.keys())
+            print("Error while sorting files")
 
     def save_index(self):
         with open(self.config.index, "w") as f:
@@ -87,12 +84,12 @@ class FileManager(metaclass=Singleton):
     def get_file_path(self, name: str):
         return os.path.join(self.path, name)
 
-    def get_path_id(self, f_id: str):
+    def get_path_id(self, f_id: int):
         if not f_id in self.index:
             return None
         return self.get_file_path(self.index[f_id]["path"])
 
-    def metadata(self, f_id: str):
+    def metadata(self, f_id: int):
         if not f_id in self.index:
             return None
         return self.index[f_id]
@@ -105,7 +102,7 @@ class FileManager(metaclass=Singleton):
             yield self.index[f_id]["id"]
 
     def get_file_info(self, rel_path: str, force_update: bool = False):
-        import thumbnails
+        import server.thumbnails as thumbnails
 
         if (
             not force_update
@@ -121,7 +118,10 @@ class FileManager(metaclass=Singleton):
         info["extension"] = self.get_extension(rel_path)
         info["date"] = creation_date(self.get_file_path(rel_path))
         info["owner"] = "<index>"
-        info["id"] = str(uuid.uuid4())
+        info["id"] = max(
+            len(self.index) + 1 + ConfigFile().index_offset,
+            max(map(int, self.index.keys()), default=0) + 1,
+        )
         info["metadata"] = {}
         info["user_tags"] = {}
         info["rights"] = []
@@ -207,7 +207,7 @@ class FileManager(metaclass=Singleton):
         return info, info["id"]
 
     def populate_index(
-        self, force_update: bool = False, path_id: dict[str, str] | None = None
+        self, force_update: bool = False, path_id: dict[int, str] | None = None
     ):
         # Use name_id to preserve ids across upgrades in the index
         use_name = path_id is not None
@@ -231,7 +231,7 @@ class FileManager(metaclass=Singleton):
     def get_all_infos(self):
         return self.index
 
-    def is_allowed(self, f_id: str, user: str):
+    def is_allowed(self, f_id: int, user: str, include_admin: bool = True):
         # Check if the file exists
         if not f_id in self.index:
             return False
@@ -249,15 +249,15 @@ class FileManager(metaclass=Singleton):
             return True
 
         # Check if the user is an admin
-        return Accounts().get_username(user)["admin"]
+        return Accounts().get_username(user)["admin"] and include_admin
 
     def get_user_files(self, user: str):
         return [
             f_id for f_id in self.ordered_files if self.index[f_id]["owner"] == user
         ]
 
-    def get_allowed_files(self, username):
-        return [f for f in self.ordered_files if self.is_allowed(f, username)]
+    def get_shared_files(self, username):
+        return [f for f in self.ordered_files if self.is_allowed(f, username, False)]
 
 
 @bp.route("/upgrade-index", methods=["PATCH"])
@@ -403,8 +403,7 @@ def get_file_list():
         "message": "OK",
         "files": [
             {k: fm.index[f_id][k] for k in SHARED_KEYS}
-            for f_id in fm.ordered_files
-            if fm.index[f_id]["owner"] == user["username"]
+            for f_id in fm.get_shared_files(user["username"])
         ],
     }
 
@@ -428,7 +427,7 @@ def get_file_list_page():
         return {"message": "Invalid page number"}, 400
 
     user = account.get_user()
-    user_files = fm.get_allowed_files(user["username"])  # Already sorted by date
+    user_files = fm.get_shared_files(user["username"])  # Already sorted by date
 
     # Build the list of files
     result = user_files[page * page_size : (page + 1) * page_size]
@@ -573,7 +572,7 @@ def refresh_index():
 
 @fileio.route("/download/<string:f_id>", methods=["GET"])
 @require_login
-def download_file(f_id: str):
+def download_file(f_id: int):
     fm = FileManager()
     account = Accounts()
 
@@ -589,7 +588,7 @@ def download_file(f_id: str):
         fm.get_file_path(fm.index[f_id]["path"]),
         as_attachment=True,
         download_name=fm.index[f_id]["path"],
-        last_modified=fm.index[f_id]["date"],
+        last_modified=fm.index[f_id]["date"] // 1000,  # Convert to seconds
     )
 
 
@@ -627,38 +626,39 @@ def upload_file():
     ):
         return {"message": "Invalid file type"}, 400
 
-    if file:
-        filename = secure_filename(file.filename)
+    if not file:
+        return {"message": "Invalid file"}, 400
 
-        # Store the file in the user's folder (does not impact ownership but it is easier to manage)
-        if not os.path.exists(fm.get_file_path(username)):
-            os.makedirs(fm.get_file_path(username))
-        filename = os.path.join(username, filename)
+    filename = secure_filename(file.filename)
 
-        # Check if the file already exists
-        if filename in fm.known_files:
-            return {"message": "File already exists"}, 400
-        file.save(
-            fm.get_file_path(filename),
-            buffer_size=ConfigFile().download_buffer_size,
-        )
-        f_info, f_id = fm.get_file_info(filename, force_update=True)
-        if "date" in request.form and request.form["date"] != "0":
-            try:
-                f_info["date"] = int(request.form["date"])
-            except ValueError:
-                pass  # Use the guessed date
-        f_info["owner"] = username
-        fm.index[f_id] = f_info
-        fm.save_index()
-        ChangeDB().add_change(f_info)
-        return {"message": "OK", "id": f_id}, 200
-    return {"message": "Invalid file"}, 400
+    # Store the file in the user's folder (does not impact ownership but it is easier to manage)
+    if not os.path.exists(fm.get_file_path(username)):
+        os.makedirs(fm.get_file_path(username))
+    filename = os.path.join(username, filename)
+
+    # Check if the file already exists
+    if filename in fm.known_files:
+        return {"message": "File already exists"}, 400
+    file.save(
+        fm.get_file_path(filename),
+        buffer_size=ConfigFile().download_buffer_size,
+    )
+    f_info, f_id = fm.get_file_info(filename, force_update=True)
+    if "date" in request.form and request.form["date"] != "0":
+        try:
+            f_info["date"] = int(request.form["date"])
+        except ValueError:
+            pass  # Use the guessed date
+    f_info["owner"] = username
+    fm.index[f_id] = f_info
+    fm.save_index()
+    ChangeDB().add_change(f_info)
+    return {"message": "OK", "id": f_id}, 200
 
 
 @bp.route("/delete/<string:f_id>", methods=["DELETE"])
 @require_login
-def delete_file(f_id: str):
+def delete_file(f_id: int):
     fm = FileManager()
     account = Accounts()
     trash = ConfigFile().trash_folder

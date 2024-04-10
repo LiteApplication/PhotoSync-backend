@@ -91,7 +91,9 @@ def get_exif_date(filename):
     # We need to convert it to unix timestamp (int)
 
     convert = lambda x: int(
-        datetime.datetime.strptime(x, "%Y:%m:%d %H:%M:%S").timestamp()
+        datetime.datetime.strptime(
+            x.replace("\x00", ""), "%Y:%m:%d %H:%M:%S"
+        ).timestamp()
     )
     image = Image.open(filename)
     try:
@@ -103,16 +105,25 @@ def get_exif_date(filename):
 
     # 36867 is the EXIF tag for DateTimeOriginal
     exif_date = exif.get(36867)
-    if exif_date is not None:
-        return convert(exif_date)
+    try:
+        if exif_date is not None:
+            return convert(exif_date)
+    except ValueError:
+        print(repr(exif_date))
     # 36868 is the EXIF tag for DateTimeDigitized
     exif_date = exif.get(36868)
-    if exif_date is not None:
-        return convert(exif_date)
+    try:
+        if exif_date is not None:
+            return convert(exif_date)
+    except ValueError:
+        print(repr(exif_date))
     # 306 is the EXIF tag for DateTime
     exif_date = exif.get(306)
-    if exif_date is not None:
-        return convert(exif_date)
+    try:
+        if exif_date is not None:
+            return convert(exif_date)
+    except ValueError:
+        print(repr(exif_date))
 
     # If we reach this point, we didn't find any date
     # we try to get the date from the filename

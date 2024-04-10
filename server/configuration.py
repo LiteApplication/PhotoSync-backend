@@ -34,6 +34,7 @@ class ConfigFile(metaclass=Singleton):
         "download_buffer_size": 65536,  # 64kb
         "thumbnail_size": 128,
         "cache_time": 2628000,  # 1 month
+        "index_offset": 10_000_000,
     }
     TYPES = {
         "storage": str,
@@ -57,6 +58,7 @@ class ConfigFile(metaclass=Singleton):
         "download_buffer_size": int,
         "thumbnail_size": int,
         "cache_time": int,
+        "index_offset": int,
     }
 
     def __init__(self, file_name: str):
